@@ -27,11 +27,39 @@ port="${SANDBOX_PORT:-8082}"
 export ADK_BASE_URL="http://localhost:$port"
 now_ms() { date +%s%3N; }
 
-forward() { # (re)start the port-forward to the sandbox pod
-  pkill -f "port-forward.*$sandbox.*$port:80" 2>/dev/null || true
-  kubectl -n "$ns" port-forward "pod/$sandbox" "$port:80" >/dev/null 2>&1 &
-  for _ in $(seq 1 60); do curl -sf "$ADK_BASE_URL/health" >/dev/null 2>&1 && return 0; sleep 0.5; done
-  echo "port-forward to $sandbox never became healthy" >&2; return 1
+forward() { # (re)start the port-forward to the jump pod, wait until the sandbox answers through it
+  pkill -f "port-forward pod/adk-jump $port:8080" 2>/dev/null || true
+  kubectl -n "$ns" port-forward pod/adk-jump "$port:8080" >/dev/null 2>&1 &
+  for _ in $(seq 1 120); do curl -sf "$ADK_BASE_URL/health" >/dev/null 2>&1 && return 0; sleep 0.5; done
+  echo "the sandbox never answered /health through the jump pod" >&2; return 1
+}
+
+# kubectl port-forward dials 127.0.0.1 inside the Pod's network namespace, which a gVisor
+# sandbox does not serve (its netstack owns the Pod IP, not the host loopback). So the drill
+# reaches the sandbox the way a client in the cluster would: a Service selecting the sandbox's
+# own label (stable across suspend and resume, when the Pod is re-created) and a plain socat
+# Pod that port-forward can reach.
+reachability() {
+  local hash
+  hash="$(kubectl -n "$ns" get pod "$sandbox" -o jsonpath='{.metadata.labels.agents\.x-k8s\.io/sandbox-name-hash}')"
+  kubectl apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: Service
+metadata: {name: $sandbox, namespace: $ns}
+spec:
+  selector: {agents.x-k8s.io/sandbox-name-hash: "$hash"}
+  ports: [{port: 80, targetPort: 80}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: adk-jump, namespace: $ns}
+spec:
+  containers:
+  - name: socat
+    image: alpine/socat
+    args: ["tcp-listen:8080,fork,reuseaddr", "tcp-connect:$sandbox.$ns.svc.cluster.local:80"]
+EOF
+  kubectl -n "$ns" wait pod/adk-jump --for=condition=Ready --timeout=120s >/dev/null
 }
 
 echo "== 1. claim a sandbox from the warm pool"
@@ -47,6 +75,7 @@ EOF
 kubectl wait sandboxclaim "$claim" -n "$ns" --for=condition=Ready --timeout=300s >/dev/null
 sandbox="$(kubectl get sandboxclaim "$claim" -n "$ns" -o jsonpath='{.status.sandbox.name}')"
 echo "claim ready in $(( $(now_ms) - t0 )) ms: sandbox=$sandbox node=$(kubectl -n "$ns" get pod "$sandbox" -o jsonpath='{.spec.nodeName}')"
+reachability
 forward
 
 echo "== 2. two turns (memory + file), then a snapshot"
@@ -90,4 +119,5 @@ t_health=$(( $(now_ms) - t0 ))
 "$here/turn.sh" "$sandbox" "What word did I ask you to reply with first, and what does /workspace/notes.md contain? One line." s1 2>&1 | tail -2
 echo "resume: Sandbox Ready in ${t_sbready} ms, ADK /health answering in ${t_health} ms, turn done in $(( $(now_ms) - t0 )) ms"
 kubectl -n "$ns" get pod "$sandbox" -o custom-columns='POD:.metadata.name,NODE:.spec.nodeName,RESTORED:.metadata.annotations.podsnapshot\.gke\.io/restored-from' 2>/dev/null || true
-pkill -f "port-forward.*$sandbox.*$port:80" 2>/dev/null || true
+pkill -f "port-forward pod/adk-jump $port:8080" 2>/dev/null || true
+kubectl -n "$ns" delete pod adk-jump service "$sandbox" --ignore-not-found >/dev/null 2>&1 || true

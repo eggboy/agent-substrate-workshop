@@ -33,11 +33,14 @@ if [[ -z "${ACTORS:-}" ]]; then
 fi
 read -r -a actors <<<"$ACTORS"
 out="${OUT:-/tmp/adk-load-$(date +%s).csv}"
+# One model call each (the last one adds a single shell-tool round trip). Open-ended tasks such
+# as "append a line to a file" turn into 10 to 20 model calls per turn and measure the agent's
+# diligence, not the platform.
 prompts=(
   "Reply with one word: ok"
-  "Add one line to /workspace/log.txt with the current date, then say done"
-  "How many lines does /workspace/log.txt have? Answer with a number"
   "Reply with one word: fine"
+  "Reply with one word: ready"
+  "Run the shell command: date +%s   and reply with its output only, nothing else"
 )
 
 echo "actor,was,session_call_s,total_s,ok" >"$out"

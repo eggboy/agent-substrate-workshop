@@ -28,6 +28,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/agent-substrate/workshop/app/internal/chatapi"
 	"github.com/agent-substrate/workshop/app/internal/metrics"
@@ -57,6 +58,9 @@ type FrontDoor struct {
 	// Lifecycle suspends an actor on its own request (POST /actors/{actor}/suspend). Nil
 	// turns that endpoint off with a 501.
 	Lifecycle Lifecycle
+	// suspending holds the actors with a self-suspend in flight, so a retry from the actor
+	// does not start a second SuspendActor.
+	suspending sync.Map
 }
 
 // HandleChat serves POST /chat/{actor}.

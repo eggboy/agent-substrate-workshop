@@ -33,16 +33,45 @@ import (
 )
 
 type fakeLifecycle struct {
-	mu    sync.Mutex
-	calls []string
-	err   error
+	mu      sync.Mutex
+	calls   []string
+	err     error
+	started chan struct{} // closed when SuspendSync is entered
+	release chan struct{} // SuspendSync blocks until this is closed, when non-nil
+	ctxErr  error         // the ctx error observed when release opened
 }
 
-func (l *fakeLifecycle) SuspendSync(_ context.Context, atespace, name string) error {
+func (l *fakeLifecycle) SuspendSync(ctx context.Context, atespace, name string) error {
+	l.mu.Lock()
+	l.calls = append(l.calls, atespace+"/"+name)
+	l.mu.Unlock()
+	if l.started != nil {
+		close(l.started)
+	}
+	if l.release != nil {
+		<-l.release
+		l.mu.Lock()
+		l.ctxErr = ctx.Err()
+		l.mu.Unlock()
+	}
+	return l.err
+}
+
+func (l *fakeLifecycle) snapshot() ([]string, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.calls = append(l.calls, atespace+"/"+name)
-	return l.err
+	return append([]string(nil), l.calls...), l.ctxErr
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func setupADK(t *testing.T, router http.HandlerFunc, lc Lifecycle) (*httptest.Server, *recorder, *metrics.Metrics) {
@@ -138,7 +167,7 @@ func TestADKRejectsBadActorAndReportsRouterErrors(t *testing.T) {
 	}
 }
 
-func TestSuspendCallsAteapiSynchronously(t *testing.T) {
+func TestSuspendIsAcceptedAndRunsSynchronousSuspend(t *testing.T) {
 	lc := &fakeLifecycle{}
 	gw, _, m := setupADK(t, func(w http.ResponseWriter, r *http.Request) { t.Error("router must not be called") }, lc)
 	resp, err := http.Post(gw.URL+"/actors/buddy/suspend", "", nil)
@@ -150,33 +179,75 @@ func TestSuspendCallsAteapiSynchronously(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != 200 || out.Actor != "buddy" || out.State != "SUSPENDED" {
+	if resp.StatusCode != http.StatusAccepted || out.Actor != "buddy" || out.State != "SUSPENDING" {
 		t.Fatalf("gateway = %d %+v", resp.StatusCode, out)
 	}
-	if len(lc.calls) != 1 || lc.calls[0] != "workshop/buddy" {
-		t.Fatalf("ateapi calls = %v", lc.calls)
-	}
-	if promtest.ToFloat64(m.SelfSuspends.WithLabelValues("ok")) != 1 {
-		t.Fatal("ok suspend not counted")
+	waitFor(t, "the ok counter", func() bool { return promtest.ToFloat64(m.SelfSuspends.WithLabelValues("ok")) == 1 })
+	if calls, _ := lc.snapshot(); len(calls) != 1 || calls[0] != "workshop/buddy" {
+		t.Fatalf("ateapi calls = %v", calls)
 	}
 }
 
-func TestSuspendReportsAteapiErrorsAsBadGateway(t *testing.T) {
+// The caller of /suspend is the actor about to be frozen: its connection drops as soon as the
+// checkpoint starts. The suspend must not die with it (that is exactly what left an actor
+// CRASHED in the first drill: "CallAteletSuspend: context canceled").
+func TestSuspendOutlivesTheCallerConnection(t *testing.T) {
+	lc := &fakeLifecycle{started: make(chan struct{}), release: make(chan struct{})}
+	gw, _, m := setupADK(t, nil, lc)
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, gw.URL+"/actors/buddy/suspend", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("gateway = %d", resp.StatusCode)
+	}
+	<-lc.started
+	cancel() // the actor's connection is gone; the suspend must carry on
+	time.Sleep(50 * time.Millisecond)
+	close(lc.release)
+	waitFor(t, "the ok counter", func() bool { return promtest.ToFloat64(m.SelfSuspends.WithLabelValues("ok")) == 1 })
+	if _, ctxErr := lc.snapshot(); ctxErr != nil {
+		t.Fatalf("suspend context was cancelled with the caller: %v", ctxErr)
+	}
+}
+
+func TestSuspendDeduplicatesWhileInFlight(t *testing.T) {
+	lc := &fakeLifecycle{started: make(chan struct{}), release: make(chan struct{})}
+	gw, _, _ := setupADK(t, nil, lc)
+	for i := 0; i < 3; i++ {
+		resp, err := http.Post(gw.URL+"/actors/buddy/suspend", "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("call %d = %d", i, resp.StatusCode)
+		}
+	}
+	<-lc.started
+	close(lc.release)
+	waitFor(t, "the single call", func() bool { calls, _ := lc.snapshot(); return len(calls) == 1 })
+	time.Sleep(50 * time.Millisecond)
+	if calls, _ := lc.snapshot(); len(calls) != 1 {
+		t.Fatalf("retries while in flight started extra suspends: %v", calls)
+	}
+}
+
+func TestSuspendCountsAteapiErrors(t *testing.T) {
 	lc := &fakeLifecycle{err: errors.New("actor not RUNNING")}
 	gw, _, m := setupADK(t, nil, lc)
 	resp, err := http.Post(gw.URL+"/actors/buddy/suspend", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
-	var out chatapi.Error
-	_ = json.NewDecoder(resp.Body).Decode(&out)
-	if resp.StatusCode != http.StatusBadGateway || !strings.Contains(out.Error, "actor not RUNNING") {
-		t.Fatalf("gateway = %d %+v", resp.StatusCode, out)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("gateway = %d", resp.StatusCode)
 	}
-	if promtest.ToFloat64(m.SelfSuspends.WithLabelValues("error")) != 1 {
-		t.Fatal("error suspend not counted")
-	}
+	waitFor(t, "the error counter", func() bool { return promtest.ToFloat64(m.SelfSuspends.WithLabelValues("error")) == 1 })
 }
 
 func TestSuspendWithoutLifecycleIs501(t *testing.T) {

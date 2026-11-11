@@ -58,10 +58,11 @@ type Error struct {
 	Error string `json:"error"`
 }
 
-// SuspendResult is the body of a successful POST /actors/{actor}/suspend: the actor is
-// SUSPENDED with a durable snapshot, and Seconds is how long the synchronous suspend took.
+// SuspendResult is the body of a POST /actors/{actor}/suspend answer: 202 with State
+// "SUSPENDING" once the gateway has taken the synchronous suspend on. The caller is usually
+// the actor itself and gets frozen before any later status could reach it, so the outcome is
+// in the gateway's log and metrics, not in a response.
 type SuspendResult struct {
-	Actor   string  `json:"actor"`
-	State   string  `json:"state"`
-	Seconds float64 `json:"seconds"`
+	Actor string `json:"actor"`
+	State string `json:"state"`
 }

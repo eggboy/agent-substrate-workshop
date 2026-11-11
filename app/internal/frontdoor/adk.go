@@ -17,6 +17,7 @@ package frontdoor
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -82,8 +83,14 @@ func (f *FrontDoor) HandleADK(w http.ResponseWriter, r *http.Request) {
 // HandleSuspend serves POST /actors/{actor}/suspend: a synchronous SuspendActor on the actor's
 // behalf. An actor cannot call the control plane, so this is how the ADK image's PID 1 shim
 // turns the SIGTERM of a disappearing worker into SUSPENDED-with-a-durable-snapshot instead
-// of CRASHED. The response arrives once the snapshot is in the bucket; by then the caller,
-// if it is the actor itself, is already frozen.
+// of CRASHED.
+//
+// The call is detached from the request on purpose and answered with 202 before it finishes.
+// The caller is the process about to be frozen: the checkpoint cuts the sandbox's network
+// within milliseconds of SuspendActor starting, the HTTP connection drops, and a handler that
+// had tied the RPC to r.Context() would cancel the suspend workflow mid-checkpoint (observed
+// as "workflow failed at step CallAteletSuspend: context canceled", then CRASHED). The outcome
+// is logged and counted instead; the actor reads it, if ever, from its own resume.
 func (f *FrontDoor) HandleSuspend(w http.ResponseWriter, r *http.Request) {
 	actor := r.PathValue("actor")
 	if !dnsLabel.MatchString(actor) {
@@ -94,14 +101,22 @@ func (f *FrontDoor) HandleSuspend(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotImplemented, chatapi.Error{Error: "gateway has no ateapi client for suspend"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), SuspendSyncTimeout)
-	defer cancel()
-	started := time.Now()
-	if err := f.Lifecycle.SuspendSync(ctx, f.Atespace, actor); err != nil {
-		f.Metrics.SelfSuspends.WithLabelValues("error").Inc()
-		writeJSON(w, http.StatusBadGateway, chatapi.Error{Error: "ateapi: " + err.Error()})
+	if _, inFlight := f.suspending.LoadOrStore(actor, struct{}{}); inFlight {
+		writeJSON(w, http.StatusAccepted, chatapi.SuspendResult{Actor: actor, State: "SUSPENDING"})
 		return
 	}
-	f.Metrics.SelfSuspends.WithLabelValues("ok").Inc()
-	writeJSON(w, http.StatusOK, chatapi.SuspendResult{Actor: actor, State: "SUSPENDED", Seconds: time.Since(started).Seconds()})
+	go func() {
+		defer f.suspending.Delete(actor)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), SuspendSyncTimeout)
+		defer cancel()
+		started := time.Now()
+		if err := f.Lifecycle.SuspendSync(ctx, f.Atespace, actor); err != nil {
+			f.Metrics.SelfSuspends.WithLabelValues("error").Inc()
+			log.Printf("self-suspend %s/%s failed after %s: %v", f.Atespace, actor, time.Since(started).Round(time.Millisecond), err)
+			return
+		}
+		f.Metrics.SelfSuspends.WithLabelValues("ok").Inc()
+		log.Printf("self-suspend %s/%s: SUSPENDED with a durable snapshot in %s", f.Atespace, actor, time.Since(started).Round(time.Millisecond))
+	}()
+	writeJSON(w, http.StatusAccepted, chatapi.SuspendResult{Actor: actor, State: "SUSPENDING"})
 }

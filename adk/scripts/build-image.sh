@@ -18,7 +18,7 @@
 # the Go images. Cloud Build instead of ko: this is a Python image with a Dockerfile, and
 # Cloud Shell has no Docker daemon worth relying on.
 set -euo pipefail
-source "$(dirname "$0")/lib.sh"
+source "$(cd "$(dirname "$0")/../.." && pwd)/scripts/lib.sh"
 load_env
 
 repo="${KO_DOCKER_REPO:?KO_DOCKER_REPO must be set in workshop.env}"

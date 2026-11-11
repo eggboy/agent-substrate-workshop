@@ -1,0 +1,111 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# The same ADK image as an Agent Sandbox on GKE sandbox with Pod snapshots (Lab 5, the
+# like-for-like leg). Differences from the Substrate template are the point of the lab:
+# - a full PodSpec on a GKE Sandbox (gVisor) node pool, one Pod per sandbox;
+# - the model key is a Kubernetes Secret mounted as an env var: it is inside the sandbox and
+#   inside every snapshot (there is no egress gateway to inject it);
+# - the shim exits on SIGTERM (SHIM_EXIT_ON_SIGTERM=1): nothing suspends a sandbox for you here
+#   either, but there is also no actor to ask for it, the client has to snapshot and suspend;
+# - resume is a Pod re-creation restored from the latest Ready PodSnapshot (3 to 5 s per GKE docs).
+# Rendered by scripts/render.sh (ADK_IMAGE from .workshop/adk-image). Namespace is fixed to
+# sandbox-lab because the IAM bindings on the snapshot bucket name it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sandbox-lab
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: snapshot-sa
+  namespace: sandbox-lab
+---
+apiVersion: podsnapshot.gke.io/v1
+kind: PodSnapshotStorageConfig
+metadata:
+  name: adk-snapshots
+spec:
+  snapshotStorageConfig:
+    gcs:
+      bucket: "${PROJECT_ID}-sandbox-snaps"
+      path: "snapshots"
+---
+apiVersion: podsnapshot.gke.io/v1
+kind: PodSnapshotPolicy
+metadata:
+  name: adk-policy
+  namespace: sandbox-lab
+spec:
+  storageConfigName: adk-snapshots
+  selector:
+    matchLabels:
+      app: adk-sandbox
+  triggerConfig:
+    type: manual
+    postCheckpoint: resume
+  snapshotGroupingRules:
+    groupByLabelValue:
+      labels:
+      - agents.x-k8s.io/sandbox-name-hash
+    groupRetentionPolicy:
+      maxSnapshotCountPerGroup: 3
+---
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: adk-template
+  namespace: sandbox-lab
+spec:
+  podTemplate:
+    metadata:
+      labels:
+        app: adk-sandbox
+    spec:
+      serviceAccountName: snapshot-sa
+      runtimeClassName: gvisor
+      nodeSelector:
+        topology.kubernetes.io/zone: ${CLUSTER_LOCATION}
+      containers:
+      - name: agent
+        image: ${ADK_IMAGE}
+        command: ["/app/.venv/bin/python", "-m", "shim.entrypoint"]
+        env:
+        - {name: ADK_EXTRA_ARGS, value: "--session_service_uri=memory:// --auto_create_session"}
+        - {name: AGENT_MODEL, value: "${GEMINI_MODEL}"}
+        - {name: SHIM_EXIT_ON_SIGTERM, value: "1"}
+        - name: GOOGLE_API_KEY
+          valueFrom:
+            secretKeyRef: {name: gemini, key: key}
+        ports:
+        - {containerPort: 80}
+        resources:
+          requests: {cpu: 500m, memory: 1Gi}
+          limits: {cpu: "1", memory: 1536Mi}
+        volumeMounts:
+        - {name: workspace, mountPath: /workspace}
+      volumes:
+      - name: workspace
+        emptyDir: {}
+---
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxWarmPool
+metadata:
+  name: adk-pool
+  namespace: sandbox-lab
+spec:
+  replicas: 1
+  sandboxTemplateRef:
+    name: adk-template

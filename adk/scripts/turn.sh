@@ -28,7 +28,9 @@ message="${2:?usage: turn.sh <actor> <message> [session] [user]}"
 session="${3:-s1}"
 user="${4:-u1}"
 app="${ADK_APP:-workspace}"
-base="${GATEWAY_URL:-http://localhost:8081}/adk/$actor"
+# ADK_BASE_URL points straight at an ADK server (the Agent Sandbox leg of Lab 5, through a
+# port-forward); otherwise the turn goes through the gateway to the named actor.
+base="${ADK_BASE_URL:-${GATEWAY_URL:-http://localhost:8081}/adk/$actor}"
 
 # The session call is the first request of the turn: if the actor is suspended, this is the
 # request the router parks while the actor resumes, so its time is the resume latency.

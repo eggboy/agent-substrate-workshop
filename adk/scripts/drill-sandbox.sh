@@ -52,7 +52,7 @@ spec:
 ---
 apiVersion: v1
 kind: Pod
-metadata: {name: adk-jump, namespace: $ns}
+metadata: {name: adk-jump, namespace: $ns, labels: {app: adk-client}}
 spec:
   containers:
   - name: socat

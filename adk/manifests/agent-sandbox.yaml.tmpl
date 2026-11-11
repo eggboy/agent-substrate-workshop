@@ -67,6 +67,21 @@ metadata:
   name: adk-template
   namespace: sandbox-lab
 spec:
+  # The controller's managed NetworkPolicy admits ingress only from the optional sandbox-router
+  # (not part of the release manifest) and egress only to public IPs. This replaces it with the
+  # same egress plus ingress from the lab's client Pod (app=adk-client), the in-cluster caller a
+  # harness would be. Substrate has no equivalent step: atenet-router is the only way in.
+  networkPolicy:
+    ingress:
+    - from:
+      - podSelector:
+          matchLabels:
+            app: adk-client
+    egress:
+    - to:
+      - ipBlock:
+          cidr: 0.0.0.0/0
+          except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
   podTemplate:
     metadata:
       labels:

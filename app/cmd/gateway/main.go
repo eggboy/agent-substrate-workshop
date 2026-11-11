@@ -68,6 +68,16 @@ func main() {
 	// synchronous suspend (its SIGTERM path).
 	mux.HandleFunc("/adk/{actor}/{path...}", fd.HandleADK)
 	mux.HandleFunc("POST /actors/{actor}/suspend", fd.HandleSuspend)
+	// ADK track, approach B: Developer-API-shaped calls from actors, served on Vertex AI with
+	// the gateway's Workload Identity. Only when the gateway knows its project.
+	if cfg.Project != "" {
+		vp, err := newVertexProxy(ctx, cfg)
+		if err != nil {
+			log.Printf("vertex proxy disabled: %v", err)
+		} else {
+			mux.Handle("/genai/{path...}", vp)
+		}
+	}
 	mux.Handle("GET /metrics", m.Handler())
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
 		if ctx.Err() != nil {

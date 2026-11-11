@@ -15,14 +15,19 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
-	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"cloud.google.com/go/auth/credentials"
 	"github.com/agent-substrate/workshop/app/internal/ateclient"
 	"github.com/agent-substrate/workshop/app/internal/frontdoor"
 	"github.com/agent-substrate/workshop/app/internal/idle"
 	"github.com/agent-substrate/workshop/app/internal/metrics"
+	"github.com/agent-substrate/workshop/app/internal/vertexproxy"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 )
 
 func routerHTTPClient(cfg config) (*http.Client, error) {
@@ -72,4 +77,34 @@ func buildComponents(cfg config, ate ateapipb.ControlClient, m *metrics.Metrics)
 	}
 	suspender := &idle.Suspender{API: idle.GRPC{C: ate}, Atespace: cfg.Atespace, IdleAfter: cfg.IdleAfter, Tracker: tracker, Metrics: m}
 	return fd, suspender, nil
+}
+
+// newVertexProxy builds the approach-B proxy on the gateway's own Google credentials
+// (Workload Identity in the cluster, ADC elsewhere). GOOGLE_CLOUD_LOCATION picks the Vertex
+// endpoint, the same variable the gateway's own model client reads.
+func newVertexProxy(ctx context.Context, cfg config) (*vertexproxy.Proxy, error) {
+	creds, err := credentials.DetectDefault(&credentials.DetectOptions{
+		Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := creds.Token(ctx); err != nil {
+		return nil, fmt.Errorf("no usable Google credentials: %w", err)
+	}
+	location := os.Getenv("GOOGLE_CLOUD_LOCATION")
+	if location == "" {
+		location = "global"
+	}
+	return &vertexproxy.Proxy{
+		Project:  cfg.Project,
+		Location: location,
+		Tokens: vertexproxy.TokenFunc(func(ctx context.Context) (string, error) {
+			tok, err := creds.Token(ctx)
+			if err != nil {
+				return "", err
+			}
+			return tok.Value, nil
+		}),
+	}, nil
 }

@@ -123,7 +123,7 @@ class Supervisor:
         self.suspend_template = os.environ.get("ACTOR_SUSPEND_URL")
         self.metadata_dir = Path(os.environ.get("ATE_METADATA_DIR", DEFAULT_METADATA_DIR))
         self.attempts = int(os.environ.get("SHIM_SUSPEND_ATTEMPTS", str(DEFAULT_SUSPEND_ATTEMPTS)))
-        self._sigterm_seen = False
+        self._suspend_thread: threading.Thread | None = None
 
     def start_child(self) -> subprocess.Popen[bytes]:
         """Start `adk api_server` with the configured agents directory and port."""
@@ -135,6 +135,17 @@ class Supervisor:
         self.child = subprocess.Popen(command)  # noqa: S603 - fixed argv, no shell
         return self.child
 
+    def suspend_in_flight(self) -> bool:
+        """Report whether a suspend request thread is still running.
+
+        Liveness, not a flag: this process is checkpointed and later restored with its memory
+        intact, so a "SIGTERM already seen" boolean set before the suspend would still be set in
+        the next incarnation, on another worker, and the next eviction would be ignored (that is
+        how the first mid-turn drill left an actor RUNNING on a terminating pod). A thread that
+        ended with the accepted request carries nothing into the next incarnation.
+        """
+        return self._suspend_thread is not None and self._suspend_thread.is_alive()
+
     def on_sigterm(self, signum: int, _frame: object) -> None:
         """Keep running, and ask the gateway to suspend this actor on a background thread."""
         if self.exit_on_sigterm:
@@ -142,12 +153,12 @@ class Supervisor:
             if self.child is not None:
                 self.child.send_signal(signum)
             return
-        if self._sigterm_seen:
-            logger.info("SIGTERM again: suspend already requested, still waiting")
+        if self.suspend_in_flight():
+            logger.info("SIGTERM again: suspend request still in flight")
             return
-        self._sigterm_seen = True
         logger.info("SIGTERM: the worker is going away; staying alive and asking the gateway to suspend this actor")
-        threading.Thread(target=self._ask_for_suspend, name="suspend-request", daemon=True).start()
+        self._suspend_thread = threading.Thread(target=self._ask_for_suspend, name="suspend-request", daemon=True)
+        self._suspend_thread.start()
 
     def _ask_for_suspend(self) -> None:
         identity = read_identity(self.metadata_dir)

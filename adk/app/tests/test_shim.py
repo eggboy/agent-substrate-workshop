@@ -95,6 +95,41 @@ def test_sigterm_does_not_exit_by_default(monkeypatch: pytest.MonkeyPatch, ident
     assert supervisor.child is None  # nothing was signalled or stopped
 
 
+def test_sigterm_after_a_restore_asks_again(monkeypatch: pytest.MonkeyPatch, identity_dir: Path, gateway: str) -> None:
+    """A restored process keeps its memory: an earlier, finished suspend request must not mute the next SIGTERM."""
+    monkeypatch.setenv("ATE_METADATA_DIR", str(identity_dir))
+    monkeypatch.setenv("ACTOR_SUSPEND_URL", f"{gateway}/actors/{{atespace}}/{{actor}}/suspend")
+    monkeypatch.setenv("SHIM_SUSPEND_ATTEMPTS", "1")
+    supervisor = Supervisor()
+    for _ in range(2):  # first eviction, then (after a snapshot and a restore elsewhere) a second one
+        supervisor.on_sigterm(signal.SIGTERM, None)
+        assert supervisor._suspend_thread is not None
+        supervisor._suspend_thread.join(timeout=5)
+        assert not supervisor.suspend_in_flight()
+    assert _Gateway.calls == ["/actors/workshop/ws-01/suspend"] * 2
+
+
+def test_sigterm_while_a_request_is_in_flight_does_not_start_another(
+    monkeypatch: pytest.MonkeyPatch, identity_dir: Path, gateway: str
+) -> None:
+    monkeypatch.setenv("ATE_METADATA_DIR", str(identity_dir))
+    monkeypatch.setenv("ACTOR_SUSPEND_URL", f"{gateway}/actors/{{atespace}}/{{actor}}/suspend")
+    supervisor = Supervisor()
+    gate = threading.Event()
+
+    def blocked_request() -> None:
+        gate.wait(timeout=5)
+
+    supervisor._ask_for_suspend = blocked_request  # type: ignore[method-assign]
+    supervisor.on_sigterm(signal.SIGTERM, None)
+    first = supervisor._suspend_thread
+    supervisor.on_sigterm(signal.SIGTERM, None)
+    assert supervisor._suspend_thread is first
+    gate.set()
+    assert first is not None
+    first.join(timeout=5)
+
+
 def test_sigterm_forwards_when_exit_requested(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SHIM_EXIT_ON_SIGTERM", "1")
     supervisor = Supervisor()

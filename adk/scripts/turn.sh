@@ -30,8 +30,11 @@ user="${4:-u1}"
 app="${ADK_APP:-workspace}"
 base="${GATEWAY_URL:-http://localhost:8081}/adk/$actor"
 
+# The session call is the first request of the turn: if the actor is suspended, this is the
+# request the router parks while the actor resumes, so its time is the resume latency.
 # 200 on create, 409 when the session already exists; anything else is a routing or actor problem.
-code="$(curl -sS -o /tmp/turn-session.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' \
+state_before="$(kubectl ate get actor "$actor" -a "${ATESPACE:-workshop}" -o json 2>/dev/null | jq -r '.status.state' | sed 's/ACTOR_STATE_//')"
+read -r code session_time <<<"$(curl -sS -o /tmp/turn-session.json -w '%{http_code} %{time_total}' -X POST -H 'Content-Type: application/json' -d '{}' \
   "$base/apps/$app/users/$user/sessions/$session")"
 case "$code" in
   200|409) ;;
@@ -54,4 +57,5 @@ fi
 sed -n 's/^data: //p' "$out" | jq -r 'select(.content.role=="model") | .content.parts[]? | select(.text) | .text' | tr -d '\r'
 events="$(grep -c '^data: ' "$out" || true)"
 rm -f "$out"
-printf '[turn] actor=%s session=%s events=%s first_byte=%ss total=%ss\n' "$actor" "$session" "$events" "$ttfb" "$total" >&2
+printf '[turn] actor=%s was=%s session=%s events=%s session_call=%ss first_byte=%ss total=%ss\n' \
+  "$actor" "${state_before:-?}" "$session" "$events" "$session_time" "$ttfb" "$total" >&2

@@ -41,6 +41,11 @@ def test_adk_command_binds_all_interfaces() -> None:
     assert adk_command("/app/agents", "80") == ["adk", "api_server", "--host", "0.0.0.0", "--port", "80", "/app/agents"]
 
 
+def test_adk_command_appends_extra_args_before_agents_dir() -> None:
+    command = adk_command("/app/agents", "80", "--session_service_uri=memory:// --auto_create_session")
+    assert command[-3:] == ["--session_service_uri=memory://", "--auto_create_session", "/app/agents"]
+
+
 class _Gateway(http.server.BaseHTTPRequestHandler):
     calls: list[str] = []
     statuses: list[int] = []

@@ -13,6 +13,7 @@ it. See docs/reference/api-guide.md "Eviction" in the Substrate repository.
 Configuration (environment):
     ADK_AGENTS_DIR          Directory `adk api_server` serves. Default /app/agents.
     ADK_PORT                Port the ADK server listens on. Default 80.
+    ADK_EXTRA_ARGS          Extra `adk api_server` flags, shell-split (e.g. "--session_service_uri=memory://").
     ATE_METADATA_DIR        Where Substrate's `actorMetadata` systemInfo volume is mounted. Default /run/ate.
     ACTOR_SUSPEND_URL       Template of the gateway endpoint that suspends this actor, with
                             `{atespace}` and `{actor}` placeholders. Unset: SIGTERM is logged and ignored.
@@ -25,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -101,9 +103,14 @@ def request_suspend(url: str, attempts: int, retry_seconds: float = SUSPEND_RETR
     return False
 
 
-def adk_command(agents_dir: str, port: str) -> list[str]:
-    """Build the ADK API server command line for this actor."""
-    return ["adk", "api_server", "--host", "0.0.0.0", "--port", port, agents_dir]
+def adk_command(agents_dir: str, port: str, extra_args: str = "") -> list[str]:
+    """Build the ADK API server command line for this actor.
+
+    `extra_args` is split like a shell would and inserted before the agents directory, so an
+    ActorTemplate can pick the session backend (`--session_service_uri=memory://`) or any other
+    `adk api_server` flag without a new image.
+    """
+    return ["adk", "api_server", "--host", "0.0.0.0", "--port", port, *shlex.split(extra_args), agents_dir]
 
 
 class Supervisor:
@@ -121,7 +128,9 @@ class Supervisor:
     def start_child(self) -> subprocess.Popen[bytes]:
         """Start `adk api_server` with the configured agents directory and port."""
         agents_dir = os.environ.get("ADK_AGENTS_DIR", DEFAULT_AGENTS_DIR)
-        command = adk_command(agents_dir, os.environ.get("ADK_PORT", DEFAULT_PORT))
+        command = adk_command(
+            agents_dir, os.environ.get("ADK_PORT", DEFAULT_PORT), os.environ.get("ADK_EXTRA_ARGS", "")
+        )
         logger.info("Starting %s", " ".join(command))
         self.child = subprocess.Popen(command)  # noqa: S603 - fixed argv, no shell
         return self.child

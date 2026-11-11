@@ -30,11 +30,11 @@ user="${4:-u1}"
 app="${ADK_APP:-workspace}"
 base="${GATEWAY_URL:-http://localhost:8081}/adk/$actor"
 
-# 200 on create, 400 when the session already exists; anything else is a routing or actor problem.
+# 200 on create, 409 when the session already exists; anything else is a routing or actor problem.
 code="$(curl -sS -o /tmp/turn-session.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' \
   "$base/apps/$app/users/$user/sessions/$session")"
 case "$code" in
-  200|400) ;;
+  200|409) ;;
   *) echo "session create: HTTP $code: $(cat /tmp/turn-session.json)" >&2; exit 1 ;;
 esac
 

@@ -66,6 +66,9 @@ func buildComponents(cfg config, ate ateapipb.ControlClient, m *metrics.Metrics)
 		Client:   hc,
 		Activity: tracker,
 		Metrics:  m,
+		// The same ateapi client the idle-suspender uses, for the sync suspend an actor's
+		// SIGTERM handler asks for (ADK track).
+		Lifecycle: idle.GRPC{C: ate},
 	}
 	suspender := &idle.Suspender{API: idle.GRPC{C: ate}, Atespace: cfg.Atespace, IdleAfter: cfg.IdleAfter, Tracker: tracker, Metrics: m}
 	return fd, suspender, nil

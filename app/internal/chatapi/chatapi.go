@@ -57,3 +57,11 @@ type ModelResponse struct {
 type Error struct {
 	Error string `json:"error"`
 }
+
+// SuspendResult is the body of a successful POST /actors/{actor}/suspend: the actor is
+// SUSPENDED with a durable snapshot, and Seconds is how long the synchronous suspend took.
+type SuspendResult struct {
+	Actor   string  `json:"actor"`
+	State   string  `json:"state"`
+	Seconds float64 `json:"seconds"`
+}

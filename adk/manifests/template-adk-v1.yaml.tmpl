@@ -1,0 +1,81 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ActorTemplate adk-v1: an unmodified `adk api_server` as an actor.
+#
+# What is different from the core modules' agent-v3:
+# - The model is called by the ADK agent itself, straight to generativelanguage.googleapis.com.
+#   GOOGLE_API_KEY below is a placeholder on purpose: template env is baked into every snapshot,
+#   so the real key never enters the sandbox. The egress gateway swaps the x-goog-api-key header
+#   on the way out (adk/manifests/egress-adk.yaml), which is why the actor must trust the
+#   egress MITM CA (trust-bundle.pem via the SystemInfo volume, SSL_CERT_FILE for httpx).
+# - Sessions live in process memory (--session_service_uri=memory://). A MEMORY-fidelity
+#   snapshot carries them across suspend/resume with no session database.
+# - PID 1 is a shim that survives SIGTERM and asks the gateway for a synchronous suspend;
+#   it learns its own actor name from the actorMetadata files in /run/ate.
+metadata:
+  atespace: ${ATESPACE}
+  name: adk-v1
+workerSelector:
+  matchLabels:
+    workload: adk-agent
+containers:
+- name: agent
+  image: ${ADK_IMAGE}
+  command: ["/app/.venv/bin/python", "-m", "shim.entrypoint"]
+  env:
+  - name: ADK_EXTRA_ARGS
+    value: "--session_service_uri=memory:// --auto_create_session"
+  - name: AGENT_MODEL
+    value: ${GEMINI_MODEL}
+  - name: GOOGLE_API_KEY
+    value: placeholder-replaced-by-egress-gateway
+  - name: SSL_CERT_FILE
+    value: /run/ate/trust-bundle.pem
+  - name: REQUESTS_CA_BUNDLE
+    value: /run/ate/trust-bundle.pem
+  - name: CURL_CA_BUNDLE
+    value: /run/ate/trust-bundle.pem
+  - name: ACTOR_SUSPEND_URL
+    value: http://gateway.${NAMESPACE}.svc.cluster.local/actors/{actor}/suspend
+  wakeupProbe:
+    httpGet: {path: /health, port: 80}
+  volumeMounts:
+  - {name: workspace, mountPath: /workspace}
+  - {name: system-info, mountPath: /run/ate}
+resources:
+  limits:
+    cpuMillicores: 1000
+    memoryBytes: 1610612736
+snapshotConfig:
+  preferredFidelity: SNAPSHOT_FIDELITY_MEMORY
+volumes:
+- name: workspace
+  durableDir: {}
+- name: system-info
+  systemInfo:
+    dataSources:
+    - actorMetadata:
+        items:
+        - field: ACTOR_METADATA_FIELD_NAME
+          path: actor-name
+        - field: ACTOR_METADATA_FIELD_ATESPACE
+          path: atespace
+        - field: ACTOR_METADATA_FIELD_UID
+          path: actor-uid
+    - trustBundle:
+        names:
+        - egress-mitm.ate.dev
+        - system-roots.ate.dev
+        path: trust-bundle.pem

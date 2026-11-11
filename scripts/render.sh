@@ -26,6 +26,7 @@ state_source() {
     AGENT_IMAGE)   echo "agent-image|make build-agent" ;;
     GATEWAY_IMAGE) echo "gateway-image|make gateway" ;;
     WORKER_IMAGE)  echo "worker-image|make install" ;;
+    ADK_IMAGE)     echo "adk-image|make adk-image" ;;
     *) return 1 ;;
   esac
 }

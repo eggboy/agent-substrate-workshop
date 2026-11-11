@@ -64,6 +64,10 @@ func main() {
 	mux.HandleFunc("GET /actors/{actor}/work", fd.HandleWork)
 	mux.HandleFunc("POST /actors/{actor}/jobs", fd.HandleJob)
 	mux.HandleFunc("POST /actors/{actor}/busy", fd.HandleBusy)
+	// ADK track: stream the ADK API server of an actor, and let an actor ask for its own
+	// synchronous suspend (its SIGTERM path).
+	mux.HandleFunc("/adk/{actor}/{path...}", fd.HandleADK)
+	mux.HandleFunc("POST /actors/{actor}/suspend", fd.HandleSuspend)
 	mux.Handle("GET /metrics", m.Handler())
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
 		if ctx.Err() != nil {

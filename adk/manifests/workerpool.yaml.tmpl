@@ -1,0 +1,44 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Worker Pods for the ADK track. Same shape as modules/02-hello-actor/manifests/workerpool.yaml.tmpl,
+# with a label of its own (workload=adk-agent) and more memory per worker: a Python ADK server
+# with the google-genai client and its tools idles at a few hundred MiB, where the Go agent of
+# the core modules uses a few MiB. Replicas are the active-actor ceiling; suspended actors do
+# not occupy a worker.
+apiVersion: ate.dev/v1
+kind: WorkerPool
+metadata:
+  name: adk-agents
+  namespace: ${NAMESPACE}
+  labels:
+    workload: adk-agent
+spec:
+  # Scale later with: kubectl -n ${NAMESPACE} patch workerpool adk-agents --type merge -p '{"spec":{"replicas":4}}'
+  replicas: 2
+  workerImage: ${WORKER_IMAGE}
+  sandboxClasses:
+  - name: gvisor
+    configRef:
+      name: gvisor-default
+  template:
+    labels:
+      workload: adk-agent
+    resources:
+      limits:
+        cpu: "2"
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 2Gi

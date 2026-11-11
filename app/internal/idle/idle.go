@@ -133,6 +133,17 @@ func (g GRPC) Suspend(ctx context.Context, atespace, name string) error {
 	return err
 }
 
+// SuspendSync is Suspend with DURABILITY_MODE_SYNCHRONOUS: it returns once the snapshot is
+// in the bucket, not just captured on the node. That is the mode an evicted actor needs,
+// because its node may be gone before an asynchronous upload finishes (api-guide "Eviction").
+func (g GRPC) SuspendSync(ctx context.Context, atespace, name string) error {
+	_, err := g.C.SuspendActor(ctx, &ateapipb.SuspendActorRequest{
+		Actor:   &ateapipb.ObjectRef{Atespace: atespace, Name: name},
+		Options: &ateapipb.SuspendOptions{Mode: ateapipb.DurabilityMode_DURABILITY_MODE_SYNCHRONOUS},
+	})
+	return err
+}
+
 // DefaultSuspendTimeout bounds one SuspendActor call, so a hung call can't stall every later suspend.
 const DefaultSuspendTimeout = 60 * time.Second
 

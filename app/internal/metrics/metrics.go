@@ -31,6 +31,8 @@ type Metrics struct {
 	ModelDuration *prometheus.HistogramVec
 	ModelTokens   *prometheus.CounterVec
 	IdleSuspends  *prometheus.CounterVec
+	SelfSuspends  *prometheus.CounterVec
+	ADKRequests   *prometheus.CounterVec
 	BusyBeats     prometheus.Counter
 	ActorsTracked prometheus.Gauge
 	ActorsAwake   prometheus.Gauge
@@ -56,6 +58,14 @@ func New() *Metrics {
 			Name: "workshop_idle_suspends_total",
 			Help: "Suspend calls made by the idle-suspender, by outcome (ok, error).",
 		}, []string{"outcome"}),
+		SelfSuspends: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "workshop_self_suspends_total",
+			Help: "Synchronous suspends requested through /actors/{actor}/suspend (an actor's SIGTERM path), by outcome (ok, error).",
+		}, []string{"outcome"}),
+		ADKRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "workshop_adk_requests_total",
+			Help: "Requests proxied to ADK actors through /adk/{actor}/, by outcome (ok, error).",
+		}, []string{"outcome"}),
 		BusyBeats: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "workshop_busy_heartbeats_total",
 			Help: "Busy heartbeats from actors' background jobs, each restarting that actor's idle clock.",
@@ -70,7 +80,7 @@ func New() *Metrics {
 		}),
 	}
 	m.Registry.MustRegister(
-		m.ChatTurns, m.ModelDuration, m.ModelTokens, m.IdleSuspends, m.BusyBeats, m.ActorsTracked, m.ActorsAwake,
+		m.ChatTurns, m.ModelDuration, m.ModelTokens, m.IdleSuspends, m.SelfSuspends, m.ADKRequests, m.BusyBeats, m.ActorsTracked, m.ActorsAwake,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)

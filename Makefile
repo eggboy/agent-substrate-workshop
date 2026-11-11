@@ -41,6 +41,8 @@ build-agent: ## ko build the agent -> .workshop/agent-image
 build-gateway: ## ko build the gateway -> .workshop/gateway-image
 	@scripts/build.sh gateway
 build: build-agent build-gateway ## Build the agent and gateway images
+adk-image: ## Cloud Build the ADK actor image (adk/app) -> .workshop/adk-image [ADK_IMAGE_TAG=dev]
+	@adk/scripts/build-image.sh
 gateway: ## Build and deploy the gateway [IDLE_AFTER=3s (default: keep live value) MOCK_LLM=true|false]
 	@scripts/build.sh gateway && scripts/gateway.sh
 egress: ## Apply an EgressPolicy [POLICY=file, then ACTOR=name or ALL=1]

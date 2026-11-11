@@ -1,0 +1,34 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# EgressPolicy for ADK actors (apply with: make egress POLICY=adk/manifests/egress-adk.yaml ACTOR=<name>).
+#
+# Two destinations, nothing else (no DNS for other names, no metadata server, no other Services):
+# - the gateway, plain HTTP, for the actor's own suspend request after SIGTERM;
+# - the Gemini Developer API over HTTPS. The egress gateway terminates TLS for this hostname
+#   (the actor trusts egress-mitm.ate.dev through its trust bundle) and replaces the
+#   x-goog-api-key header, which the google-genai client sends with the placeholder from the
+#   template, with the key read from Secret workshop-secrets/gemini, key "key". The key never
+#   enters the sandbox, so it is in no snapshot, log, or `kubectl ate get` output.
+#
+# Applied literally, not rendered: the gateway hostname assumes NAMESPACE=workshop.
+rules:
+- http:
+    hostnames: ["gateway.workshop.svc.cluster.local"]
+- https:
+    hostnames: ["generativelanguage.googleapis.com"]
+    effects:
+      replaceHeaders:
+      - header: x-goog-api-key
+        credentialUri: ate-secret://k8s.io/default/workshop-secrets/gemini/key

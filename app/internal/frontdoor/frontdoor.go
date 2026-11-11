@@ -54,6 +54,9 @@ type FrontDoor struct {
 	Client   *http.Client
 	Activity Activity
 	Metrics  *metrics.Metrics
+	// Lifecycle suspends an actor on its own request (POST /actors/{actor}/suspend). Nil
+	// turns that endpoint off with a 501.
+	Lifecycle Lifecycle
 }
 
 // HandleChat serves POST /chat/{actor}.

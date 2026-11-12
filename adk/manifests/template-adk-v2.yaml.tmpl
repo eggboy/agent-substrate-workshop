@@ -1,0 +1,74 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ActorTemplate adk-v2: the day-2 version of adk-v1. One change: ADK sessions live in a SQLite
+# database on the durable directory instead of process memory. An actor moved from adk-v1 to
+# adk-v2 with `kubectl ate update actor --template` cold-boots from adk-v2's golden snapshot (its
+# memory is adk-v2's, not the actor's) but keeps /workspace, so sessions written there survive the
+# upgrade. Sessions that only ever lived in adk-v1's memory do not: that is the point of Lab 6.
+metadata:
+  atespace: ${ATESPACE}
+  name: adk-v2
+workerSelector:
+  matchLabels:
+    workload: adk-agent
+containers:
+- name: agent
+  image: ${ADK_IMAGE}
+  command: ["/app/.venv/bin/python", "-m", "shim.entrypoint"]
+  env:
+  - name: ADK_EXTRA_ARGS
+    value: "--session_service_uri=sqlite:////workspace/sessions.db --auto_create_session"
+  - name: AGENT_MODEL
+    value: ${GEMINI_MODEL}
+  - name: GOOGLE_API_KEY
+    value: placeholder-replaced-by-egress-gateway
+  - name: SSL_CERT_FILE
+    value: /run/ate/trust-bundle.pem
+  - name: REQUESTS_CA_BUNDLE
+    value: /run/ate/trust-bundle.pem
+  - name: CURL_CA_BUNDLE
+    value: /run/ate/trust-bundle.pem
+  - name: ACTOR_SUSPEND_URL
+    value: http://gateway.${NAMESPACE}.svc.cluster.local/actors/{actor}/suspend
+  wakeupProbe:
+    httpGet: {path: /health, port: 80}
+  volumeMounts:
+  - {name: workspace, mountPath: /workspace}
+  - {name: system-info, mountPath: /run/ate}
+resources:
+  limits:
+    cpuMillicores: 1000
+    memoryBytes: 1610612736
+snapshotConfig:
+  preferredFidelity: SNAPSHOT_FIDELITY_MEMORY
+volumes:
+- name: workspace
+  durableDir: {}
+- name: system-info
+  systemInfo:
+    dataSources:
+    - actorMetadata:
+        items:
+        - field: ACTOR_METADATA_FIELD_NAME
+          path: actor-name
+        - field: ACTOR_METADATA_FIELD_ATESPACE
+          path: atespace
+        - field: ACTOR_METADATA_FIELD_UID
+          path: actor-uid
+    - trustBundle:
+        names:
+        - egress-mitm.ate.dev
+        - system-roots.ate.dev
+        path: trust-bundle.pem

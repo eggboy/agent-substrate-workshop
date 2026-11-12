@@ -13,13 +13,14 @@ header for the value of Secret `workshop-secrets/gemini`. The egress gateway ter
 hostname (the actor trusts `egress-mitm.ate.dev` through the projected trust bundle) and re-originates the
 call with the real key.
 
-1. Look at what the actor can reach. Ask it to try three places:
+1. Look at what the actor can reach. Ask it to try two places:
    ```bash
-   adk/scripts/turn.sh ws "Run these shell commands and paste their output verbatim: curl -sS -m 5 -o /dev/null -w HTTP%{http_code} https://example.com/ ; echo; curl -sS -m 5 -o /dev/null -w HTTP%{http_code} https://generativelanguage.googleapis.com/ ; echo; curl -sS -m 5 -o /dev/null -w HTTP%{http_code} http://gateway.workshop.svc.cluster.local/readyz ; echo"
+   adk/scripts/turn.sh ws "Run these two shell commands and paste their output verbatim: curl -sS -m 5 -o /dev/null -w HTTP%{http_code} https://example.com/ ; echo; curl -sS -m 5 -o /dev/null -w HTTP%{http_code} https://generativelanguage.googleapis.com/ ; echo"
    ```
    Expected: `curl: (6) Could not resolve host: example.com` (deny by default means no DNS answer, not a
-   timeout); `HTTP404` from the Gemini host (reachable, `/` is just not a route); `HTTP200` from the gateway.
-   The model declines to print `$GOOGLE_API_KEY` for you, which is fair; the next step reads it from the outside.
+   timeout) and `HTTP404` from the Gemini host (reachable, `/` is just not a route). The model declines to
+   print `$GOOGLE_API_KEY` or to probe internal addresses for you, which is fair; the next step reads the
+   configuration from the outside.
 2. Prove the key is nowhere an attendee can read:
    ```bash
    kubectl ate get actor-template adk-v1 -a workshop -o yaml | grep -n GOOGLE_API_KEY

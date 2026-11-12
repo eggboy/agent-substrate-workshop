@@ -37,21 +37,23 @@ uploads later).
    DURATION=150 CONCURRENCY=2 adk/scripts/load.sh
    ```
    The summary splits turns by whether the actor had to be resumed. Measured while building the lab:
-   31 turns, 0 failures, 16 distinct actors served by 2 workers; resumed turns p50 3.0 s, p95 5.7 s; warm turns 2.0 s.
-3. Read the `first_request` column for resumed turns: p50 5.7 s. That is not the restore. The restore is
+   31 turns, 0 failures, 15 distinct actors served by 2 workers; resumed turns p50 2.9 s, p95 6.5 s; warm turns 3.5 s.
+3. Read the `first_request` column for resumed turns: p50 5.3 s. That is not the restore. The restore is
    1.1 s (Lab 1). The rest is waiting for a worker: both are busy, and the idle policy frees one 5 s after
    its actor's last request. Prove it by changing the knob and running again:
    ```bash
    make idle-on IDLE_AFTER=1s
    DURATION=150 CONCURRENCY=2 adk/scripts/load.sh
    ```
-   Resumed `first_request` drops by about 4 s; the price is a suspend after every turn (1.5 s of worker time
-   each, and a snapshot upload). Pick the number for your traffic, not the smallest one.
+   Measured: resumed `first_request` p50 1.4 s (from 5.3 s), 49 turns instead of 31 in the same 150 s. The price
+   is a suspend after almost every turn (1.5 s of worker time each, and a snapshot upload). Pick the number for
+   your traffic, not the smallest one.
 4. More clients than workers:
    ```bash
+   make idle-on IDLE_AFTER=5s
    DURATION=120 CONCURRENCY=4 adk/scripts/load.sh
    ```
-   Measured: 34 turns, 3 failed, resumed `first_request` p95 29 s. Four conversations want two workers;
+   Measured: 38 turns, 1 failed, resumed `first_request` p95 28 s. Four conversations want two workers;
    requests park, and past 60 s they fail. This is the honest limit: suspended sessions are free, active
    ones are not. The remedy is more workers, not a smaller `IDLE_AFTER`:
    ```bash
@@ -59,6 +61,9 @@ uploads later).
    kubectl ate get workers -n workshop                                     # four, after the Pods start
    DURATION=120 CONCURRENCY=4 adk/scripts/load.sh
    ```
+   Measured: 63 turns, 0 failed, resumed `first_request` p50 3.0 s, p95 11.8 s. (One turn in sixty takes 40
+   to 100 s when the model decides to verify a shell result in several steps; that is the agent, and it shows
+   up in `max`, not in p95.)
 5. What a suspended fleet costs. With the load finished and the idle policy on:
    ```bash
    sleep 10; kubectl ate get workers -n workshop                           # 0 actors on every worker

@@ -24,6 +24,7 @@
 # state trace, the time from delete to the final state, the gateway's self-suspend counter and
 # the worker Pod's grace period, so the two runs can be compared side by side.
 set -euo pipefail
+source "$(dirname "$0")/common.sh"
 
 actor="${1:?usage: drill-evict.sh <actor> [atespace]}"
 atespace="${2:-${ATESPACE:-workshop}}"
@@ -32,7 +33,6 @@ gateway="${GATEWAY_URL:-http://localhost:8081}"
 
 state() { kubectl ate get actor "$actor" -a "$atespace" -o json 2>/dev/null | jq -r '.status.state'; }
 worker_pod() { kubectl ate get actor "$actor" -a "$atespace" -o json 2>/dev/null | jq -r '.status.workerAssignment.workerPod // empty'; }
-now_ms() { date +%s%3N; }
 self_suspends() { curl -sf "$gateway/metrics" 2>/dev/null | awk '/^workshop_self_suspends_total\{outcome="ok"\}/ {print $2}'; }
 
 if [[ "$(state)" != ACTOR_STATE_RUNNING ]]; then
@@ -47,12 +47,12 @@ echo "actor=$actor worker_pod=$pod terminationGracePeriodSeconds=$grace self_sus
 
 t0="$(now_ms)"
 kubectl -n "$namespace" delete pod "$pod" --wait=false >/dev/null
-echo "$(date -u +%T.%3N) deleted $pod (SIGTERM is on its way to the actor)"
+echo "$(date -u +%T) deleted $pod (SIGTERM is on its way to the actor)"
 last=""
 for _ in $(seq 1 600); do
   s="$(state)"
   if [[ "$s" != "$last" ]]; then
-    echo "$(date -u +%T.%3N) +$(( $(now_ms) - t0 ))ms state=$s"
+    echo "$(date -u +%T) +$(( $(now_ms) - t0 ))ms state=$s"
     last="$s"
   fi
   case "$s" in ACTOR_STATE_SUSPENDED|ACTOR_STATE_CRASHED) break ;; esac

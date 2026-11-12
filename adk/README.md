@@ -59,10 +59,12 @@ In addition to the official pre-event steps (`make gcp`, `make install`, `make b
    `workshop-secrets/gemini` (key `key`), and the credential provider's namespace policy allowing the atespace.
    `make adk-catch-up LAB=1` checks both and prints the commands if they are missing.
 2. `make adk-image` (about 2 minutes on Cloud Build).
-3. For Lab 5: a GKE Sandbox node pool, `--enable-pod-snapshots` on the cluster, the snapshot bucket with
-   hierarchical namespace and its IAM bindings, the Agent Sandbox controller. The commands are in
-   [labs/05-agent-sandbox](labs/05-agent-sandbox/README.md#setup-done-before-the-event-listed-so-you-know-what-is-there).
-4. `make adk-catch-up LAB=1`, then `make adk-verify LAB=1` once by hand, so the first attendee is not the test.
+3. For Lab 5: `make adk-sandbox-setup` (gVisor node pool, snapshot bucket and IAM, Agent Sandbox controller, the
+   lab manifests); the cluster needs `--enable-pod-snapshots`. Details in
+   [labs/05-agent-sandbox](labs/05-agent-sandbox/README.md#setup-done-before-the-event-make-adk-sandbox-setup-runs-it).
+4. `make adk-catch-up LAB=2` (the end state of Lab 1), then `make adk-verify LAB=1` once by hand, so the first
+   attendee is not the test. Then remove what Lab 1 creates, so attendees create it themselves:
+   `kubectl ate delete actor ws -a workshop; kubectl ate delete actor-template adk-v1 -a workshop`.
 
 ## What the labs do not claim
 

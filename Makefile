@@ -49,6 +49,11 @@ adk-verify: ## Check the end state of an ADK lab [LAB=N]
 	@adk/scripts/verify/$$(printf '%02d' "$(LAB)").sh
 adk-teardown: ## Delete the ADK track's actors, templates, pool, sandbox lab and secrets namespace [YES=1]
 	@YES="$(YES)" adk/scripts/teardown.sh
+adk-sandbox-setup: ## Pre-event provisioning for ADK lab 5: gVisor node pool, snapshot bucket, IAM, Agent Sandbox controller
+	@adk/scripts/sandbox-setup.sh
+adk-test: ## Offline tests of the ADK app (uv run pytest) and its manifest templates
+	@cd adk/app && uv run --frozen pytest -q
+	@scripts/test/render_test.sh >/dev/null && echo "  ✓ render_test (includes adk/manifests)"
 gateway: ## Build and deploy the gateway [IDLE_AFTER=3s (default: keep live value) MOCK_LLM=true|false]
 	@scripts/build.sh gateway && scripts/gateway.sh
 egress: ## Apply an EgressPolicy [POLICY=file, then ACTOR=name or ALL=1]
@@ -90,4 +95,4 @@ delete-cluster: ## Delete the GKE cluster, its PVCs and their disks first; run t
 	@scripts/delete-cluster.sh
 clean: ## Remove local build output (bin/, dist/)
 	@rm -rf bin dist
-.PHONY: help preflight gcp install install-bg install-status dashboards build-agent build-gateway build gateway egress tools load observe prometheus-ui forward-router forward-gateway patch-router idle-off idle-on catch-up verify e2e test test-go test-scripts stop-forwards teardown delete-cluster clean
+.PHONY: help preflight gcp install install-bg install-status dashboards build-agent build-gateway build gateway egress tools load observe prometheus-ui forward-router forward-gateway patch-router idle-off idle-on catch-up verify e2e test test-go test-scripts stop-forwards teardown delete-cluster clean adk-image adk-catch-up adk-verify adk-teardown adk-sandbox-setup adk-test

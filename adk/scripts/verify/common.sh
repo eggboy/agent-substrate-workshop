@@ -19,9 +19,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../scripts/verify/common.sh"
 ADK_DIR="$REPO_ROOT/adk"
 GATEWAY_LOCAL="http://localhost:${GATEWAY_LOCAL_PORT:-8081}"
 
-# finish <lab>: the official finish, with the ADK catch-up hint.
+# finish <lab>: the official finish, with the ADK catch-up hint (catch-up knows labs 1 to 5).
 finish() {
-  (( VFAILS == 0 )) || die "ADK lab $1: $VFAILS check(s) failed — see adk/labs/0$1-*/README.md, or run: make adk-catch-up LAB=$(( $1 + 1 )) (add RESET=1 to recreate a broken template and its actors)"
+  local hint="see adk/labs/0$1-*/README.md"
+  (( $1 < 5 )) && hint="$hint, or run: make adk-catch-up LAB=$(( $1 + 1 )) (add RESET=1 to recreate a broken template and its actors)"
+  (( VFAILS == 0 )) || die "ADK lab $1: $VFAILS check(s) failed — $hint"
   ok "ADK lab $1 complete"
 }
 
@@ -46,6 +48,7 @@ gateway_has_route() {
 
 # adk_sessions <actor> [user]: the actor's session ids for the user (resumes the actor if needed).
 adk_sessions() {
+  free_worker_for "$1"
   curl -sf "$GATEWAY_LOCAL/adk/$1/apps/${ADK_APP:-workspace}/users/${2:-u1}/sessions" 2>/dev/null | jq -r '.[].id'
 }
 

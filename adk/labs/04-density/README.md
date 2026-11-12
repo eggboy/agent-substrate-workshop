@@ -21,11 +21,14 @@ uploads later).
 
 ## Steps
 
-1. Twenty actors from `adk-v1`, the policy on all of them, idle-suspend at 5 s (`make adk-catch-up LAB=5` does the same):
+1. Twenty actors from `adk-v1`, the policy on each of them, idle-suspend at 5 s (`make adk-catch-up LAB=5` does the same).
+   The policy goes on by name: `make egress ... ALL=1` would also overwrite `wsv`'s approach-B policy from Lab 2.
    ```bash
    source scripts/env.sh
-   for i in $(seq -w 1 20); do kubectl ate create actor ws-$i --template=adk-v1 -a workshop >/dev/null; done
-   make egress POLICY=adk/manifests/egress-adk.yaml ALL=1
+   for i in $(seq -w 1 20); do
+     kubectl ate create actor ws-$i --template=adk-v1 -a workshop >/dev/null
+     make egress POLICY=adk/manifests/egress-adk.yaml ACTOR=ws-$i >/dev/null
+   done
    make idle-on IDLE_AFTER=5s
    kubectl ate get actors -a workshop | awk 'NR>1 {print $4}' | sort | uniq -c      # 20+ SUSPENDED, 0 workers used
    ```

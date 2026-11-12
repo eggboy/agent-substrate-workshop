@@ -64,7 +64,7 @@ func New() *Metrics {
 		}, []string{"outcome"}),
 		ADKRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "workshop_adk_requests_total",
-			Help: "Requests proxied to ADK actors through /adk/{actor}/, by outcome (ok, error).",
+			Help: "Requests proxied to ADK actors through /adk/{actor}/, by outcome (ok: the actor answered, any status below 500; error: router or actor failure).",
 		}, []string{"outcome"}),
 		BusyBeats: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "workshop_busy_heartbeats_total",

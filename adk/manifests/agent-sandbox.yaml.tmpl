@@ -97,8 +97,9 @@ spec:
     spec:
       serviceAccountName: snapshot-sa
       runtimeClassName: gvisor
-      nodeSelector:
-        topology.kubernetes.io/zone: ${CLUSTER_LOCATION}
+      # No zone pin: runtimeClassName selects the GKE Sandbox node pool, and a zone selector
+      # would never match on a regional cluster. Pin a zone only if the pool spans CPU platforms
+      # (a snapshot restores on the CPU type it was taken on).
       containers:
       - name: agent
         image: ${ADK_IMAGE}

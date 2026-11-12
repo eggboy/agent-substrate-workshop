@@ -36,12 +36,14 @@ base="${ADK_BASE_URL:-${GATEWAY_URL:-http://localhost:8081}/adk/$actor}"
 # request the router parks while the actor resumes, so its time is the resume latency.
 # 200 on create, 409 when the session already exists; anything else is a routing or actor problem.
 state_before="$( (kubectl ate get actor "$actor" -a "${ATESPACE:-workshop}" -o json 2>/dev/null || true) | jq -r '.status.state // "n/a"' 2>/dev/null | sed 's/ACTOR_STATE_//')"
-read -r code session_time <<<"$(curl -sS -o /tmp/turn-session.json -w '%{http_code} %{time_total}' -X POST -H 'Content-Type: application/json' -d '{}' \
+session_body="$(mktemp)"
+read -r code session_time <<<"$(curl -sS -o "$session_body" -w '%{http_code} %{time_total}' -X POST -H 'Content-Type: application/json' -d '{}' \
   "$base/apps/$app/users/$user/sessions/$session")"
 case "$code" in
   200|409) ;;
-  *) echo "session create: HTTP $code: $(cat /tmp/turn-session.json)" >&2; exit 1 ;;
+  *) echo "session create: HTTP $code: $(cat "$session_body")" >&2; rm -f "$session_body"; exit 1 ;;
 esac
+rm -f "$session_body"
 
 body="$(jq -cn --arg app "$app" --arg user "$user" --arg session "$session" --arg text "$message" \
   '{appName:$app, userId:$user, sessionId:$session, streaming:false, newMessage:{role:"user", parts:[{text:$text}]}}')"

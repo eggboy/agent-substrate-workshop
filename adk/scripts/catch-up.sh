@@ -46,6 +46,13 @@ template() { # <name> <tmpl-file>: create (or RESET) a template and wait for its
 }
 
 actor() { # <name> <template> <policy-file>
+  # RESET=1 (or a template move in lab 6) can leave the actor on another template: recreate it.
+  local have
+  have="$(actor_json "$ATESPACE" "$1" 2>/dev/null | jq -r '.actorTemplate.name // empty' || true)"
+  if [[ -n "$have" && "$have" != "$2" ]]; then
+    kubectl ate delete actor "$1" -a "$ATESPACE" >/dev/null 2>&1 || true
+    wait_for 120 "actor $1 to be deleted" bash -c "! kubectl ate get actor '$1' -a '$ATESPACE' >/dev/null 2>&1"
+  fi
   ensure_actor "$ATESPACE" "$1" "$2"
   "$REPO_ROOT/scripts/egress.sh" apply "$ADK/manifests/$3" "--actor=$1" >/dev/null
   ok "actor $1 ($2) with $3"
@@ -68,7 +75,8 @@ fi
 if ! kubectl -n ate-system get configmap k8s-credential-provider-namespace-policy -o jsonpath='{.data.namespace-policy\.yaml}' | grep -q "atespace: $ATESPACE"; then
   step "allowing atespace $ATESPACE to read workshop-secrets (credential provider policy)"
   kubectl -n ate-system get configmap k8s-credential-provider-namespace-policy -o jsonpath='{.data.namespace-policy\.yaml}' \
-    | sed "s/^policies: \[\]/policies:\n- atespace: $ATESPACE\n  allowedNamespaces: [workshop-secrets]/" >"$TMP/policy.yaml"
+    | awk -v as="$ATESPACE" '/^policies: \[\]$/ {print "policies:"; print "- atespace: " as; print "  allowedNamespaces: [workshop-secrets]"; next} {print}' >"$TMP/policy.yaml"
+  grep -q "atespace: $ATESPACE" "$TMP/policy.yaml" || die "could not add atespace $ATESPACE to the credential provider policy; edit the ConfigMap by hand (optional lab J, step 3)"
   kubectl -n ate-system create configmap k8s-credential-provider-namespace-policy --from-file=namespace-policy.yaml="$TMP/policy.yaml" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl -n ate-system rollout restart deploy/k8s-credential-provider >/dev/null
   kubectl -n ate-system rollout status deploy/k8s-credential-provider --timeout=120s >/dev/null
@@ -85,7 +93,11 @@ set_idle() {
 }
 case "$N" in
   1|2|4) set_idle 30s ;;
-  3)     set_idle 0s ;;
+  3)     set_idle 0s
+         # With the idle policy off, two RUNNING actors would hold both ADK workers for the whole lab.
+         for a in $(_actors_list "$ATESPACE" | jq -r '.[] | select((.status.state // "") == "ACTOR_STATE_RUNNING" and ((.actorTemplate.name // "") | startswith("adk-"))) | .metadata.name'); do
+           kubectl ate suspend actor "$a" -a "$ATESPACE" >/dev/null 2>&1 && ok "suspended $a (lab 3 starts with free workers)"
+         done ;;
   5)     set_idle "${IDLE_AFTER:-5s}" ;;
 esac
 (( N >= 2 )) || { ok "ready for ADK lab 1"; exit 0; }
@@ -109,6 +121,9 @@ fi
 (( N >= 5 )) || { ok "ready for ADK lab 4"; exit 0; }
 
 step "ADK lab 4 state"
-for i in $(seq -w 1 20); do ensure_actor "$ATESPACE" "ws-$i" adk-v1; done
-"$REPO_ROOT/scripts/egress.sh" apply "$ADK/manifests/egress-adk.yaml" --all >/dev/null
+for i in $(seq -w 1 20); do
+  ensure_actor "$ATESPACE" "ws-$i" adk-v1
+  "$REPO_ROOT/scripts/egress.sh" apply "$ADK/manifests/egress-adk.yaml" "--actor=ws-$i" >/dev/null
+done
+ok "ws-01 to ws-20 with egress-adk.yaml (wsv keeps its own policy)"
 ok "ready for ADK lab 5"

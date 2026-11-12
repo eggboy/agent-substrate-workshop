@@ -48,6 +48,8 @@ load_env() {
   [[ -n "${PROJECT_ID:-}" ]] || die "PROJECT_ID is empty in $f"
   : "${NAMESPACE:=workshop}" "${ATESPACE:=workshop}" "${MOCK_LLM:=false}"
   export NAMESPACE ATESPACE MOCK_LLM
+  # The ADK templates render ${GEMINI_MODEL}; keep the same default as scripts/gateway.sh.
+  : "${GEMINI_MODEL:=gemini-3.8-flash}"; export GEMINI_MODEL
   # Substrate's ate-setup reads CLUSTER_NAME / CLUSTER_LOCATION (and fails without them when PROJECT_ID is
   # set). Older workshop.env files used CLUSTER / ZONE_OR_REGION; accept those too. CLUSTER_LOCATION has no
   # default on purpose: a zonal cluster (us-central1-a) is not found under its region (us-central1), so

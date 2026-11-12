@@ -24,6 +24,7 @@
 # `{"confirmed": true}`, which resumes the actor and runs the tool. The script checks that a
 # publish_report function response arrived and that the published file exists.
 set -euo pipefail
+source "$(dirname "$0")/common.sh"
 
 actor="${1:?usage: drill-confirm.sh <actor> [session] [user]}"
 session="${2:-confirm-$(date +%s)}"
@@ -55,15 +56,15 @@ published_before="$(jq -r '.content.parts[]? | select(.functionResponse.name=="p
 echo "confirmation requested: id=$request_id (publish_report ran before approval: ${published_before:-no})"
 
 echo "== 2. suspend the actor while the human decides"
-t0=$(date +%s%3N)
+t0=$(now_ms)
 kubectl ate suspend actor "$actor" -a "$atespace" --mode=sync >/dev/null 2>&1
-echo "suspended in $(( $(date +%s%3N) - t0 )) ms; state=$(kubectl ate get actor "$actor" -a "$atespace" -o json 2>/dev/null | jq -r .status.state)"
+echo "suspended in $(( $(now_ms) - t0 )) ms; state=$(kubectl ate get actor "$actor" -a "$atespace" -o json 2>/dev/null | jq -r .status.state)"
 
 echo "== 3. approve (resumes the actor, runs the tool)"
 approval="$(jq -cn --arg id "$request_id" '{role:"user", parts:[{functionResponse:{id:$id, name:"adk_request_confirmation", response:{confirmed:true}}}]}')"
-t0=$(date +%s%3N)
+t0=$(now_ms)
 step3="$(run_sse "$approval" | events)"
-elapsed=$(( $(date +%s%3N) - t0 ))
+elapsed=$(( $(now_ms) - t0 ))
 status="$(jq -r '.content.parts[]? | select(.functionResponse.name=="publish_report") | .functionResponse.response.status' <<<"$step3" | head -1)"
 published_path="$(jq -r '.content.parts[]? | select(.functionResponse.name=="publish_report") | .functionResponse.response.published_path // empty' <<<"$step3" | head -1)"
 jq -r '.content.parts[]? | select(.text) | .text' <<<"$step3" | tail -2

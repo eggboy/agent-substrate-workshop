@@ -68,7 +68,9 @@ func (f *FrontDoor) HandleADK(w http.ResponseWriter, r *http.Request) {
 		// Flush every write: SSE events must not wait in a buffer for the stream to end.
 		FlushInterval: -1,
 		ModifyResponse: func(resp *http.Response) error {
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			// 4xx is the ADK server answering a client (409 "session exists", 404): the
+			// proxy did its job. 5xx is the router (no worker, parking budget) or the actor.
+			if resp.StatusCode < 500 {
 				outcome = "ok"
 			}
 			return nil

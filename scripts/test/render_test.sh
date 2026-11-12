@@ -35,4 +35,13 @@ rm "$WORKSHOP_STATE_DIR/agent-image"
 out="$(bash "$ROOT/scripts/render.sh" "$TMP/t.yaml.tmpl" 2>&1)"; rc=$?
 check "missing state fails" "[[ $rc -ne 0 ]]"
 check "missing state names the make target" "[[ \"\$out\" == *'make build-agent'* ]]"
+
+# Every ADK template renders with no placeholder left, given the state the ADK track records.
+echo "r/adk-workspace@sha256:def" >"$WORKSHOP_STATE_DIR/adk-image"
+echo "ghcr.io/x/ateworker@sha256:123" >"$WORKSHOP_STATE_DIR/worker-image"
+printf 'PROJECT_ID=p\nBUCKET_NAME=b\nCLUSTER_LOCATION=z\n' >"$WORKSHOP_ENV_FILE"
+for t in "$ROOT"/adk/manifests/*.yaml.tmpl; do
+  out="$(bash "$ROOT/scripts/render.sh" "$t" 2>&1)"; rc=$?
+  check "renders $(basename "$t")" "[[ $rc -eq 0 && \"\$out\" != *'\${'* && \"\$out\" == *'sha256:'* ]]"
+done
 exit "$fails"

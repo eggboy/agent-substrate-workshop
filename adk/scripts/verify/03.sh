@@ -19,7 +19,7 @@ source "$(dirname "$0")/common.sh"
 step "verify ADK lab 3 (interruptions)"
 
 check "gateway port-forward is up" gateway_up
-check "gateway serves the ADK routes (/adk/{actor}/..., /actors/{actor}/suspend)" gateway_has_route POST /actors/verify-probe/suspend
+check "gateway serves the ADK routes (/adk/{actor}/..., /actors/{actor}/suspend)" gateway_has_route POST /actors/Not_Valid/suspend
 
 # Part A: a session on ws carries last_published in its state (set by publish_report after the approval).
 published_session() {

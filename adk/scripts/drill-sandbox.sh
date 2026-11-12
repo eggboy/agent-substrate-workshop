@@ -19,13 +19,13 @@
 #
 #   adk/scripts/drill-sandbox.sh            (expects adk/manifests/agent-sandbox.yaml.tmpl applied)
 set -euo pipefail
+source "$(dirname "$0")/common.sh"
 
 ns=sandbox-lab
 claim="adk-claim-$(date +%s)"
 here="$(cd "$(dirname "$0")" && pwd)"
 port="${SANDBOX_PORT:-8082}"
 export ADK_BASE_URL="http://localhost:$port"
-now_ms() { date +%s%3N; }
 
 forward() { # (re)start the port-forward to the jump pod, wait until the sandbox answers through it
   pkill -f "port-forward pod/adk-jump $port:8080" 2>/dev/null || true
@@ -45,7 +45,7 @@ reachability() {
   kubectl apply -f - >/dev/null <<EOF
 apiVersion: v1
 kind: Service
-metadata: {name: $sandbox, namespace: $ns}
+metadata: {name: $sandbox, namespace: $ns, labels: {adk-lab: sandbox-jump}}
 spec:
   selector: {agents.x-k8s.io/sandbox-name-hash: "$hash"}
   ports: [{port: 80, targetPort: 80}]
@@ -63,6 +63,9 @@ EOF
 }
 
 echo "== 1. claim a sandbox from the warm pool"
+# A previous run leaves its jump Pod and Service behind on purpose (Lab 5 step 3 inspects them).
+kubectl -n "$ns" delete pod adk-jump --ignore-not-found >/dev/null 2>&1 || true
+kubectl -n "$ns" delete svc -l adk-lab=sandbox-jump --ignore-not-found >/dev/null 2>&1 || true
 kubectl wait sandboxwarmpool adk-pool -n "$ns" --for=jsonpath='{.status.readyReplicas}'=1 --timeout=600s >/dev/null
 t0=$(now_ms)
 kubectl apply -f - >/dev/null <<EOF
@@ -120,4 +123,4 @@ t_health=$(( $(now_ms) - t0 ))
 echo "resume: Sandbox Ready in ${t_sbready} ms, ADK /health answering in ${t_health} ms, turn done in $(( $(now_ms) - t0 )) ms"
 kubectl -n "$ns" get pod "$sandbox" -o custom-columns='POD:.metadata.name,NODE:.spec.nodeName,RESTORED:.metadata.annotations.podsnapshot\.gke\.io/restored-from' 2>/dev/null || true
 pkill -f "port-forward pod/adk-jump $port:8080" 2>/dev/null || true
-kubectl -n "$ns" delete pod adk-jump service "$sandbox" --ignore-not-found >/dev/null 2>&1 || true
+echo "left in place for the next steps: sandbox $sandbox, Service $sandbox, Pod adk-jump (make adk-teardown removes them)"

@@ -167,6 +167,23 @@ func TestADKRejectsBadActorAndReportsRouterErrors(t *testing.T) {
 	}
 }
 
+func TestADKCountsClientErrorsAsAnswered(t *testing.T) {
+	gw, _, m := setupADK(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"detail":"Session already exists: s1"}`, http.StatusConflict)
+	}, nil)
+	resp, err := http.Post(gw.URL+"/adk/buddy/apps/workspace/users/u1/sessions/s1", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("upstream status not propagated: %d", resp.StatusCode)
+	}
+	if promtest.ToFloat64(m.ADKRequests.WithLabelValues("ok")) != 1 || promtest.ToFloat64(m.ADKRequests.WithLabelValues("error")) != 0 {
+		t.Fatal("a 4xx from the ADK server is an answered request, not a proxy error")
+	}
+}
+
 func TestSuspendIsAcceptedAndRunsSynchronousSuspend(t *testing.T) {
 	lc := &fakeLifecycle{}
 	gw, _, m := setupADK(t, func(w http.ResponseWriter, r *http.Request) { t.Error("router must not be called") }, lc)

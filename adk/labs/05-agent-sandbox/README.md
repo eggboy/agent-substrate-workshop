@@ -9,12 +9,27 @@ The protocol is deliberately boring: claim, two turns, snapshot, suspend, resume
 every step timed. [`adk/scripts/drill-sandbox.sh`](../../scripts/drill-sandbox.sh) runs it; read it first,
 it is the whole lab in 120 lines.
 
-## Setup (done before the event, listed so you know what is there)
+## Setup (done before the event; `make adk-sandbox-setup` runs it)
 
-- A node pool with `--sandbox type=gvisor` (n2-standard-4; Pod snapshots do not support E2). Substrate workers
-  never land there: GKE taints these nodes with `sandbox.gke.io/runtime`.
-- The cluster was created with `--enable-pod-snapshots`, a bucket with hierarchical namespace, a custom IAM role
-  for the sandbox's Kubernetes service account, and the Agent Sandbox controller v1.0.6 (`sandbox-with-extensions.yaml`).
+[`adk/scripts/sandbox-setup.sh`](../../scripts/sandbox-setup.sh) provisions everything below on the workshop
+cluster, idempotently, from `workshop.env`. The pieces, so you know what is there:
+
+- The cluster has Pod snapshots on: `--enable-pod-snapshots` at creation, or
+  `gcloud container clusters update $CLUSTER_NAME --location $CLUSTER_LOCATION --enable-pod-snapshots`.
+- A node pool with GKE Sandbox: `gcloud container node-pools create sandbox-pool --cluster $CLUSTER_NAME
+  --location $CLUSTER_LOCATION --machine-type n2-standard-4 --num-nodes 1 --sandbox type=gvisor
+  --enable-private-nodes --shielded-secure-boot --shielded-integrity-monitoring --workload-metadata=GKE_METADATA`
+  (Pod snapshots do not support E2). Substrate workers never land there: GKE taints these nodes with
+  `sandbox.gke.io/runtime`.
+- A bucket for snapshots with hierarchical namespace and no soft delete,
+  `gcloud storage buckets create gs://${PROJECT_ID}-sandbox-snaps --location $REGION --uniform-bucket-level-access
+  --enable-hierarchical-namespace --soft-delete-duration=0d`, with a managed folder `snapshots/`.
+- A custom role `podSnapshotGcsReadWriter` (`storage.objects.get,create,delete`, `storage.folders.create`) bound
+  to the sandbox's Kubernetes service account `sandbox-lab/snapshot-sa` through Workload Identity, plus
+  `roles/storage.objectUser` for that account and for the GKE robot `service-<project-number>@container-engine-robot`,
+  and `roles/storage.bucketViewer` for the namespace.
+- The Agent Sandbox controller v1.0.6:
+  `kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.6/sandbox-with-extensions.yaml`.
 - [`adk/manifests/agent-sandbox.yaml.tmpl`](../../manifests/agent-sandbox.yaml.tmpl): `PodSnapshotStorageConfig`,
   `PodSnapshotPolicy` (manual trigger, grouped per sandbox), a `SandboxTemplate` with the ADK image, and a
   `SandboxWarmPool` of one. Compare the template with `adk-v1`:
@@ -49,7 +64,8 @@ it is the whole lab in 120 lines.
    3.8 s, `PodSnapshot` Ready **4.7 s**, about **144 MiB** per snapshot; suspend (Pod deleted) **1.4 s**; resume:
    Sandbox Ready 2.2 s, ADK `/health` answering **3.3 s** after the patch; the session and `/workspace/notes.md`
    both restored; turn after resume 2.8 s.
-3. Look at what the drill had to do to talk to the sandbox, because a harness would have to do the same:
+3. Look at what the drill had to do to talk to the sandbox, because a harness would have to do the same. The drill
+   leaves its Service and jump Pod in place:
    ```bash
    kubectl -n sandbox-lab get networkpolicy -o yaml | grep -A12 'ingress:'
    kubectl -n sandbox-lab get pod adk-jump -o jsonpath='{.spec.containers[0].args}'; echo
@@ -58,13 +74,21 @@ it is the whole lab in 120 lines.
    not serve), so the drill creates a Service keyed on the sandbox's own label and a socat Pod. Substrate's
    equivalent is `ate-target-actor: workshop/ws` on any request.
 4. Repeat the resume without a Ready snapshot to see the failure mode. Suspend, delete the latest `PodSnapshot`,
-   resume: the Pod comes back as a fresh process with an empty session.
+   resume: the Pod comes back as a fresh process with an empty session. Then take a snapshot again so the
+   sandbox is restorable (and the checkpoint below passes).
    ```bash
    SB=$(kubectl -n sandbox-lab get sandboxclaim -o jsonpath='{.items[-1].status.sandbox.name}')
    kubectl -n sandbox-lab patch sandbox $SB --type=merge -p '{"spec":{"operatingMode":"Suspended"}}'
    kubectl -n sandbox-lab delete podsnapshot --all
    kubectl -n sandbox-lab patch sandbox $SB --type=merge -p '{"spec":{"operatingMode":"Running"}}'
    kubectl wait sandbox $SB -n sandbox-lab --for=condition=Ready --timeout=300s
+   kubectl -n sandbox-lab logs $SB | head -3                                 # "Starting adk api_server": a cold start
+   kubectl apply -f - <<EOF
+   apiVersion: podsnapshot.gke.io/v1
+   kind: PodSnapshotManualTrigger
+   metadata: {name: after-step-4, namespace: sandbox-lab}
+   spec: {targetPod: $SB}
+   EOF
    ```
    Nothing in Agent Sandbox snapshots for you; the harness decides when. Substrate's idle policy in Lab 4 is
    the same decision, made in one place for every actor.

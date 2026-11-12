@@ -8,13 +8,15 @@ team that runs agents on Substrate will meet them.
 
 You need the actor `ws` from Lab 1 (template `adk-v1`), the gateway port-forward, and the gateway's
 idle-suspend **off**: this lab decides itself when an actor is suspended, and a 5 s idle policy would
-suspend `fragile` and `ws` between your commands.
+suspend `fragile` and `ws` between your commands. With the policy off, nothing frees a worker for you
+either, and there are two: start with every ADK actor suspended (`make adk-catch-up LAB=3` does all of this).
 
 ```bash
 source scripts/env.sh
 make idle-off                              # IDLE_AFTER=0s; Lab 4 turns it back on
+kubectl ate suspend actor wsv -a workshop 2>/dev/null; kubectl ate suspend actor ws -a workshop 2>/dev/null
 make forward-gateway                       # http://localhost:8081
-kubectl ate get actor ws -a workshop       # SUSPENDED or RUNNING, either is fine
+kubectl ate get workers -n workshop        # 0 actors on both adk-agents workers
 ```
 
 ## Part A: Approval tomorrow
@@ -84,6 +86,7 @@ uvicorn, gunicorn and node do by default, cannot be suspended.
    adk/scripts/turn.sh fragile "Which words did I ask you to remember?"      # 503: AssignWorker prerequisite not met
    kubectl ate revert actor fragile -a workshop
    adk/scripts/turn.sh fragile "Which words did I ask you to remember?"
+   kubectl ate suspend actor fragile -a workshop                              # free its worker for Parts C and D
    ```
    Pelican is back, osprey is gone: the actor is exactly as it was at the `--mode=sync` suspend. The durable
    snapshot is the unit of loss, which is why every Substrate example suspends before it relies on state.

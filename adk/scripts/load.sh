@@ -16,11 +16,11 @@
 # Density run: many ADK sessions, few workers. Random actors get turns from CONCURRENCY
 # parallel clients for DURATION seconds while the gateway's idle-suspender frees workers.
 #
-#   ACTORS="adk-01 ... adk-20" DURATION=120 CONCURRENCY=2 adk/scripts/load.sh
+#   ACTORS="ws-01 ... ws-20" DURATION=120 CONCURRENCY=2 adk/scripts/load.sh
 #
 # Output: one CSV line per turn (actor, state before, session-call seconds = resume when the
-# actor was suspended, total seconds, ok), a p50/p95 summary split by whether the turn had to
-# resume the actor, and the worker count that served it all.
+# actor was suspended, total seconds, ok, error), a p50/p95 summary split by whether the turn had
+# to resume the actor, and the worker count that served it all.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -29,7 +29,7 @@ concurrency="${CONCURRENCY:-2}"
 atespace="${ATESPACE:-workshop}"
 namespace="${NAMESPACE:-workshop}"
 if [[ -z "${ACTORS:-}" ]]; then
-  ACTORS="$(for i in $(seq -w 1 20); do printf 'adk-%s ' "$i"; done)"
+  ACTORS="$(for i in $(seq -w 1 20); do printf 'ws-%s ' "$i"; done)"
 fi
 read -r -a actors <<<"$ACTORS"
 out="${OUT:-/tmp/adk-load-$(date +%s).csv}"
@@ -43,7 +43,7 @@ prompts=(
   "Run the shell command: date +%s   and reply with its output only, nothing else"
 )
 
-echo "actor,was,session_call_s,total_s,ok" >"$out"
+echo "actor,was,session_call_s,total_s,ok,error" >"$out"
 echo "load: ${#actors[@]} actors, $concurrency clients, ${duration}s -> $out"
 
 client() {
@@ -51,14 +51,18 @@ client() {
   while (( $(date +%s) < end )); do
     local actor="${actors[RANDOM % ${#actors[@]}]}"
     local prompt="${prompts[RANDOM % ${#prompts[@]}]}"
-    local line
-    line="$("$here/turn.sh" "$actor" "$prompt" "load" "client-$id" 2>&1 >/dev/null | grep '^\[turn\]' || echo "[turn] actor=$actor was=? session_call=0 total=0 FAILED")"
-    local was sc total ok=1
+    local err line
+    err="$("$here/turn.sh" "$actor" "$prompt" "load" "client-$id" 2>&1 >/dev/null || true)"
+    line="$(grep '^\[turn\]' <<<"$err" || true)"
+    local was sc total ok=1 reason=""
     was="$(sed -n 's/.*was=\([^ ]*\).*/\1/p' <<<"$line")"
     sc="$(sed -n 's/.*session_call=\([0-9.]*\)s.*/\1/p' <<<"$line")"
     total="$(sed -n 's/.*total=\([0-9.]*\)s.*/\1/p' <<<"$line")"
-    [[ "$line" == *FAILED* || -z "$total" ]] && ok=0
-    echo "$actor,${was:-?},${sc:-0},${total:-0},$ok" >>"$out"
+    if [[ -z "$total" ]]; then
+      ok=0
+      reason="$(grep -v '^\[turn\]' <<<"$err" | head -1 | tr ',' ';' | cut -c1-120)"
+    fi
+    echo "$actor,${was:-?},${sc:-0},${total:-0},$ok,$reason" >>"$out"
   done
 }
 
@@ -84,6 +88,9 @@ import csv, statistics, sys
 rows = list(csv.DictReader(open(sys.argv[1])))
 ok = [r for r in rows if r["ok"] == "1"]
 print(f"turns={len(rows)} ok={len(ok)} failed={len(rows) - len(ok)} actors={len({r['actor'] for r in rows})}")
+for r in rows:
+    if r["ok"] != "1":
+        print(f"  failed: {r['actor']}: {r.get('error', '')}")
 
 def pct(values, p):
     if not values:

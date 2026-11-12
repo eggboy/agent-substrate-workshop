@@ -55,8 +55,9 @@ if [[ "$code" != 200 ]]; then
   rm -f "$out"
   exit 1
 fi
-# Final text parts of the stream (each `data:` line is one ADK event).
+# Final text parts of the stream (each `data:` line is one ADK event), then any error event.
 sed -n 's/^data: //p' "$out" | jq -r 'select(.content.role=="model") | .content.parts[]? | select(.text) | .text' | tr -d '\r'
+sed -n 's/^data: //p' "$out" | jq -r 'select(.errorMessage) | "[error] " + (.errorCode // "") + " " + (.errorMessage | .[0:300])' >&2
 events="$(grep -c '^data: ' "$out" || true)"
 rm -f "$out"
 printf '[turn] actor=%s was=%s session=%s events=%s session_call=%ss first_byte=%ss total=%ss\n' \

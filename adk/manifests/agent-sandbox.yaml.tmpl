@@ -78,6 +78,19 @@ spec:
           matchLabels:
             app: adk-client
     egress:
+    # The managed default has no DNS rule: kube-dns is DNAT'ed to a 10.x Pod IP, which the
+    # "public IPs only" rule drops, and the model call fails with "Temporary failure in name
+    # resolution" after 20 s. Substrate's egress gateway resolves names itself.
+    - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+        podSelector:
+          matchLabels:
+            k8s-app: kube-dns
+      ports:
+      - {protocol: UDP, port: 53}
+      - {protocol: TCP, port: 53}
     - to:
       - ipBlock:
           cidr: 0.0.0.0/0

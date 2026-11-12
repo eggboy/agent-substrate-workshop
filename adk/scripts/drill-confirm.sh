@@ -18,7 +18,7 @@
 #
 #   adk/scripts/drill-confirm.sh <actor> [session] [user]
 #
-# Step 1 asks the agent to publish /workspace/notes.md; publish_report requires confirmation,
+# Step 1 asks the agent to write and publish a report; publish_report requires confirmation,
 # so the stream ends with an `adk_request_confirmation` function call (and no publication).
 # Step 2 suspends the actor synchronously. Step 3 answers the confirmation with
 # `{"confirmed": true}`, which resumes the actor and runs the tool. The script checks that a
@@ -44,7 +44,7 @@ events() { sed -n 's/^data: //p' | tr -d '\r'; }
 curl -sS -o /dev/null -X POST -H 'Content-Type: application/json' -d '{}' "$base/apps/$app/users/$user/sessions/$session"
 
 echo "== 1. ask for a publication (publish_report needs confirmation)"
-step1="$(run_sse '{"role":"user","parts":[{"text":"Publish the report at /workspace/notes.md using publish_report. Do not ask me anything, just call the tool."}]}' | events)"
+step1="$(run_sse '{"role":"user","parts":[{"text":"Create /workspace/report.md containing one line: lab 3 report. Then publish it with publish_report. Do not ask me anything, just call the tools."}]}' | events)"
 request_id="$(jq -r '.content.parts[]? | select(.functionCall.name=="adk_request_confirmation") | .functionCall.id' <<<"$step1" | head -1)"
 if [[ -z "$request_id" ]]; then
   echo "no adk_request_confirmation in the stream:" >&2

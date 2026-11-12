@@ -21,7 +21,8 @@ step "verify ADK lab 6 (observe and operate)"
 check "gateway port-forward is up" gateway_up
 check "gateway exports ADK metrics" bash -c "curl -sf '$GATEWAY_LOCAL/metrics' | grep -q '^workshop_adk_requests_total'"
 check "template adk-v2 has a golden snapshot" _template_ready "$ATESPACE" adk-v2
-check "actor ws runs template adk-v2" bash -c "[[ \"\$(actor_json '$ATESPACE' ws | jq -r '.actorTemplate.name // .spec.actorTemplate.name // empty')\" == adk-v2 ]]"
+actor_template_is() { [[ "$(actor_json "$ATESPACE" "$1" | jq -r '.actorTemplate.name // empty')" == "$2" ]]; }
+check "actor ws runs template adk-v2" actor_template_is ws adk-v2
 # Sessions now live on /workspace: a word remembered in a session survives a suspend on the new template.
 if adk_turn_ok ws "Remember the word puffin. Reply with: noted"; then
   suspend_actor "$ATESPACE" ws

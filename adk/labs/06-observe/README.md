@@ -34,10 +34,12 @@ template version for actors that already exist.
    ```bash
    kubectl ate suspend actor ws -a workshop --mode=sync
    kubectl ate update actor ws --template=adk-v2 -a workshop
-   adk/scripts/turn.sh ws "What word did I ask you to remember, and what is in /workspace/bird.txt? One line."
+   adk/scripts/turn.sh ws "Without searching the workspace: what word did I ask you to remember in this conversation? Then run: cat /workspace/bird.txt. One line."
    ```
-   The file is there; the word is not. Memory belonged to the old process, the durable directory belongs to the
-   actor. From now on `ws`'s sessions are rows in `/workspace/sessions.db`, and the next template move keeps them:
+   The file is there; the word is not. (Ask it plainly; an open question sends the agent through every file in
+   `/workspace` looking for the answer, which takes minutes.) Memory belonged to the old process, the durable
+   directory belongs to the actor. From now on `ws`'s sessions are rows in `/workspace/sessions.db`, and the next
+   suspend, and the next template move, keep them:
    ```bash
    adk/scripts/turn.sh ws "Remember the word gannet. Reply with: noted" s2
    kubectl ate suspend actor ws -a workshop --mode=sync

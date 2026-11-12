@@ -134,9 +134,8 @@ func TestADKStreamsEventsBeforeTheResponseEnds(t *testing.T) {
 	if len(rec.begun) != 1 || len(rec.ended) != 1 || rec.begun[0] != "buddy" {
 		t.Fatalf("activity begun=%v ended=%v", rec.begun, rec.ended)
 	}
-	if promtest.ToFloat64(m.ADKRequests.WithLabelValues("ok")) != 1 {
-		t.Fatal("ok request not counted")
-	}
+	// The handler increments the counter after the response is complete; poll briefly.
+	waitFor(t, "the ok counter", func() bool { return promtest.ToFloat64(m.ADKRequests.WithLabelValues("ok")) == 1 })
 }
 
 func TestADKRejectsBadActorAndReportsRouterErrors(t *testing.T) {
@@ -162,9 +161,7 @@ func TestADKRejectsBadActorAndReportsRouterErrors(t *testing.T) {
 	if len(rec.begun) != 1 || len(rec.ended) != 1 {
 		t.Fatalf("activity begun=%v ended=%v", rec.begun, rec.ended)
 	}
-	if promtest.ToFloat64(m.ADKRequests.WithLabelValues("error")) != 1 {
-		t.Fatal("error request not counted")
-	}
+	waitFor(t, "the error counter", func() bool { return promtest.ToFloat64(m.ADKRequests.WithLabelValues("error")) == 1 })
 }
 
 func TestADKCountsClientErrorsAsAnswered(t *testing.T) {
@@ -179,7 +176,8 @@ func TestADKCountsClientErrorsAsAnswered(t *testing.T) {
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("upstream status not propagated: %d", resp.StatusCode)
 	}
-	if promtest.ToFloat64(m.ADKRequests.WithLabelValues("ok")) != 1 || promtest.ToFloat64(m.ADKRequests.WithLabelValues("error")) != 0 {
+	waitFor(t, "a 4xx counted as answered", func() bool { return promtest.ToFloat64(m.ADKRequests.WithLabelValues("ok")) == 1 })
+	if promtest.ToFloat64(m.ADKRequests.WithLabelValues("error")) != 0 {
 		t.Fatal("a 4xx from the ADK server is an answered request, not a proxy error")
 	}
 }

@@ -57,9 +57,22 @@ adk_session_json() {
 # adk_turn_ok <actor> <message>: one turn through the gateway answers with at least one model event.
 adk_turn_ok() {
   local out
+  free_worker_for "$1"
   out="$("$ADK_DIR/scripts/turn.sh" "$1" "$2" "verify" "verify" 2>&1)" || return 1
   grep -q '^\[turn\]' <<<"$out"
 }
 
 # actor_not_in_state <atespace> <actor> <STATE>
 actor_not_in_state() { [[ "$(actor_state "$1" "$2")" != "$3" ]]; }
+
+# free_worker_for <actor>: with two ADK workers and idle-suspend possibly off (Lab 3), a third
+# RUNNING actor would wait out the router's parking budget and fail. Suspend the other ADK actors
+# that are RUNNING so the one under test can be placed.
+free_worker_for() {
+  local keep="$1" a
+  for a in $(_actors_list "$ATESPACE" | jq -r '.[] | select((.status.state // "") == "ACTOR_STATE_RUNNING" and ((.actorTemplate.name // "") | startswith("adk-"))) | .metadata.name'); do
+    [[ "$a" == "$keep" ]] && continue
+    kubectl ate suspend actor "$a" -a "$ATESPACE" >/dev/null 2>&1 || true
+  done
+  return 0
+}

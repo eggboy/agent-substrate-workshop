@@ -74,10 +74,20 @@ if ! kubectl -n ate-system get configmap k8s-credential-provider-namespace-polic
   kubectl -n ate-system rollout status deploy/k8s-credential-provider --timeout=120s >/dev/null
 fi
 ok "foundations in place"
-# Labs 1 to 3 suspend actors themselves; a live idle policy would race their drills. Lab 4 turns it on.
-if (( N <= 4 )) && [[ "$(kubectl -n "$NAMESPACE" get deploy gateway -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IDLE_AFTER")].value}' 2>/dev/null)" != 0s ]]; then
-  "$REPO_ROOT/scripts/idle.sh" off >/dev/null && ok "idle-suspend off (IDLE_AFTER=0s)"
-fi
+# Idle policy per lab: 30 s keeps two workers flowing between actors in labs 1, 2 and 4; lab 3
+# suspends actors itself and needs it off; lab 4's exercise turns it to 5 s (lab 5 start).
+set_idle() {
+  local want="$1" have
+  have="$(kubectl -n "$NAMESPACE" get deploy gateway -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IDLE_AFTER")].value}' 2>/dev/null || true)"
+  [[ "$have" == "$want" ]] && return 0
+  if [[ "$want" == 0s ]]; then "$REPO_ROOT/scripts/idle.sh" off >/dev/null; else IDLE_AFTER="$want" "$REPO_ROOT/scripts/idle.sh" on >/dev/null; fi
+  ok "gateway idle-suspend: IDLE_AFTER=$want"
+}
+case "$N" in
+  1|2|4) set_idle 30s ;;
+  3)     set_idle 0s ;;
+  5)     set_idle "${IDLE_AFTER:-5s}" ;;
+esac
 (( N >= 2 )) || { ok "ready for ADK lab 1"; exit 0; }
 
 step "ADK lab 1 state"
@@ -101,5 +111,4 @@ fi
 step "ADK lab 4 state"
 for i in $(seq -w 1 20); do ensure_actor "$ATESPACE" "ws-$i" adk-v1; done
 "$REPO_ROOT/scripts/egress.sh" apply "$ADK/manifests/egress-adk.yaml" --all >/dev/null
-IDLE_AFTER="${IDLE_AFTER:-5s}" "$REPO_ROOT/scripts/idle.sh" on >/dev/null
 ok "ready for ADK lab 5"

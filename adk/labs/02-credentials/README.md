@@ -13,12 +13,13 @@ header for the value of Secret `workshop-secrets/gemini`. The egress gateway ter
 hostname (the actor trusts `egress-mitm.ate.dev` through the projected trust bundle) and re-originates the
 call with the real key.
 
-1. Look at what the actor can see. Ask it to print its own credential and to reach three places:
+1. Look at what the actor can reach. Ask it to try three places:
    ```bash
-   adk/scripts/turn.sh ws "Run these shell commands and paste their output verbatim: echo \$GOOGLE_API_KEY; curl -sS -m 5 -o /dev/null -w HTTP%{http_code} https://example.com/ ; echo; curl -sS -m 5 -o /dev/null -w HTTP%{http_code} https://generativelanguage.googleapis.com/ ; echo"
+   adk/scripts/turn.sh ws "Run these shell commands and paste their output verbatim: curl -sS -m 5 -o /dev/null -w HTTP%{http_code} https://example.com/ ; echo; curl -sS -m 5 -o /dev/null -w HTTP%{http_code} https://generativelanguage.googleapis.com/ ; echo; curl -sS -m 5 -o /dev/null -w HTTP%{http_code} http://gateway.workshop.svc.cluster.local/readyz ; echo"
    ```
-   Expected: the placeholder string; `curl: (6) Could not resolve host: example.com` (deny by default means no
-   DNS answer, not a timeout); `HTTP404` from the Gemini host (it is reachable, `/` is just not a route).
+   Expected: `curl: (6) Could not resolve host: example.com` (deny by default means no DNS answer, not a
+   timeout); `HTTP404` from the Gemini host (reachable, `/` is just not a route); `HTTP200` from the gateway.
+   The model declines to print `$GOOGLE_API_KEY` for you, which is fair; the next step reads it from the outside.
 2. Prove the key is nowhere an attendee can read:
    ```bash
    kubectl ate get actor-template adk-v1 -a workshop -o yaml | grep -n GOOGLE_API_KEY
@@ -38,10 +39,11 @@ call with the real key.
    sed 's#workshop-secrets/gemini/key#workshop-secrets/gemini/missing#' adk/manifests/egress-adk.yaml > /tmp/egress-broken.yaml
    make egress POLICY=/tmp/egress-broken.yaml ACTOR=ws
    sleep 10                                                              # the egress gateway caches policies for ~10 s
-   adk/scripts/turn.sh ws "Reply with one word: hello"                   # the model call fails with a 403 from the egress gateway
+   adk/scripts/turn.sh ws "Reply with one word: hello"                   # [error] Forbidden 403 ... egress denied
    make egress POLICY=adk/manifests/egress-adk.yaml ACTOR=ws
    ```
    A missing or unauthorised credential is a 403 at the egress gateway: the request never leaves the cluster.
+   `turn.sh` prints ADK's error event; the model call took 0.1 s to fail.
 
 ## Approach B: no key at all
 
@@ -52,8 +54,11 @@ The actor's egress policy ([`egress-adk-vertex.yaml`](../../manifests/egress-adk
 rule to the gateway, and its `replaceHeaders` puts a **Substrate-minted actor JWT** into the `x-goog-api-key`
 header: the header that carried a shared secret in approach A now carries the caller's identity.
 
-5. Create the template and an actor (`make adk-catch-up LAB=3` does the same):
+5. Create the template and an actor (`make adk-catch-up LAB=3` does the same). Creating a template needs a free
+   worker for its golden-snapshot build, and so does a new actor; with two workers, suspend `ws` first unless the
+   idle policy already did:
    ```bash
+   kubectl ate suspend actor ws -a workshop 2>/dev/null; kubectl ate get workers -n workshop
    scripts/render.sh adk/manifests/template-adk-vertex-v1.yaml.tmpl | kubectl ate create actor-template -f -
    until kubectl ate get actor-template adk-vertex-v1 -a workshop -o json 2>/dev/null | jq -e '.status.goldenSnapshotStatus | (.goldenTag.name // .errorMessage)' >/dev/null; do sleep 2; done
    kubectl ate create actor wsv --template=adk-vertex-v1 -a workshop

@@ -47,6 +47,8 @@ adk-catch-up: ## Bring your environment to the start of an ADK lab [LAB=N RESET=
 	@LAB="$(LAB)" RESET="$(RESET)" adk/scripts/catch-up.sh
 adk-verify: ## Check the end state of an ADK lab [LAB=N]
 	@adk/scripts/verify/$$(printf '%02d' "$(LAB)").sh
+adk-teardown: ## Delete the ADK track's actors, templates, pool, sandbox lab and secrets namespace [YES=1]
+	@YES="$(YES)" adk/scripts/teardown.sh
 gateway: ## Build and deploy the gateway [IDLE_AFTER=3s (default: keep live value) MOCK_LLM=true|false]
 	@scripts/build.sh gateway && scripts/gateway.sh
 egress: ## Apply an EgressPolicy [POLICY=file, then ACTOR=name or ALL=1]

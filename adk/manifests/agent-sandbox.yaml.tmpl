@@ -80,15 +80,10 @@ spec:
     egress:
     # The managed default has no DNS rule: kube-dns is DNAT'ed to a 10.x Pod IP, which the
     # "public IPs only" rule drops, and the model call fails with "Temporary failure in name
-    # resolution" after 20 s. Substrate's egress gateway resolves names itself.
-    - to:
-      - namespaceSelector:
-          matchLabels:
-            kubernetes.io/metadata.name: kube-system
-        podSelector:
-          matchLabels:
-            k8s-app: kube-dns
-      ports:
+    # resolution" after 20 s. A podSelector rule for kube-dns did not take effect for gVisor
+    # Pods on this Dataplane V2 cluster; a port-53 rule to any destination does. Substrate's
+    # egress gateway resolves names itself, so its actors need no DNS rule at all.
+    - ports:
       - {protocol: UDP, port: 53}
       - {protocol: TCP, port: 53}
     - to:

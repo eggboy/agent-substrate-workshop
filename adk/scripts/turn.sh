@@ -35,7 +35,7 @@ base="${ADK_BASE_URL:-${GATEWAY_URL:-http://localhost:8081}/adk/$actor}"
 # The session call is the first request of the turn: if the actor is suspended, this is the
 # request the router parks while the actor resumes, so its time is the resume latency.
 # 200 on create, 409 when the session already exists; anything else is a routing or actor problem.
-state_before="$(kubectl ate get actor "$actor" -a "${ATESPACE:-workshop}" -o json 2>/dev/null | jq -r '.status.state' | sed 's/ACTOR_STATE_//')"
+state_before="$( (kubectl ate get actor "$actor" -a "${ATESPACE:-workshop}" -o json 2>/dev/null || true) | jq -r '.status.state // "n/a"' 2>/dev/null | sed 's/ACTOR_STATE_//')"
 read -r code session_time <<<"$(curl -sS -o /tmp/turn-session.json -w '%{http_code} %{time_total}' -X POST -H 'Content-Type: application/json' -d '{}' \
   "$base/apps/$app/users/$user/sessions/$session")"
 case "$code" in

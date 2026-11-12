@@ -74,6 +74,10 @@ if ! kubectl -n ate-system get configmap k8s-credential-provider-namespace-polic
   kubectl -n ate-system rollout status deploy/k8s-credential-provider --timeout=120s >/dev/null
 fi
 ok "foundations in place"
+# Labs 1 to 3 suspend actors themselves; a live idle policy would race their drills. Lab 4 turns it on.
+if (( N <= 4 )) && [[ "$(kubectl -n "$NAMESPACE" get deploy gateway -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IDLE_AFTER")].value}' 2>/dev/null)" != 0s ]]; then
+  "$REPO_ROOT/scripts/idle.sh" off >/dev/null && ok "idle-suspend off (IDLE_AFTER=0s)"
+fi
 (( N >= 2 )) || { ok "ready for ADK lab 1"; exit 0; }
 
 step "ADK lab 1 state"

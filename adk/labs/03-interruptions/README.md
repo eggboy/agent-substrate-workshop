@@ -6,10 +6,13 @@ the ADK actor from Lab 1 through each of those and measures what survives. Two o
 parts come from failures found while building this workshop; they are in here because every
 team that runs agents on Substrate will meet them.
 
-You need the actor `ws` from Lab 1 (template `adk-v1`) and the gateway port-forward:
+You need the actor `ws` from Lab 1 (template `adk-v1`), the gateway port-forward, and the gateway's
+idle-suspend **off**: this lab decides itself when an actor is suspended, and a 5 s idle policy would
+suspend `fragile` and `ws` between your commands.
 
 ```bash
 source scripts/env.sh
+make idle-off                              # IDLE_AFTER=0s; Lab 4 turns it back on
 make forward-gateway                       # http://localhost:8081
 kubectl ate get actor ws -a workshop       # SUSPENDED or RUNNING, either is fine
 ```
@@ -121,7 +124,7 @@ your own harness:
 
 ## Part D: Eviction in the middle of a turn, and ADK's part of the deal
 
-7. Start a 20 s tool call and evict the worker while it runs:
+7. Start a 20 s tool call, evict the worker while it runs, then let ADK finish the turn:
    ```bash
    adk/scripts/drill-midturn.sh ws
    ```
@@ -129,18 +132,17 @@ your own harness:
    the process. The client's stream ended early (the connection broke at the checkpoint). The session
    history shows the shell tool's response as `{"error": "Invocation was aborted by client."}`: ADK cancels
    a turn whose SSE client is gone, so the tool was abandoned, not finished.
-8. ADK can finish it. The app is resumable, so a request with the original invocation id and no message
-   replays the event log from the last event and re-executes the interrupted tool:
-   ```bash
-   S=$(curl -s localhost:8081/adk/ws/apps/workspace/users/u1/sessions | jq -r '.[].id' | grep midturn | tail -1)
-   INV=$(curl -s localhost:8081/adk/ws/apps/workspace/users/u1/sessions/$S | jq -r '[.events[] | select(.author=="user")][0].invocationId')
-   curl -s -N -X POST -H 'Content-Type: application/json' localhost:8081/adk/ws/run_sse \
-     -d '{"appName":"workspace","userId":"u1","sessionId":"'$S'","invocationId":"'$INV'"}' \
-     | sed -n 's/^data: //p' | jq -c '{author, fc: [.content.parts[]?.functionCall.name // empty], fr: [.content.parts[]?.functionResponse.response // empty], text: [.content.parts[]?.text // empty]}'
+8. The drill's last step is ADK's side of the recovery. The app is resumable, so a `/run_sse` request with the
+   original `invocationId` and no message replays the event log from the last event and re-executes the
+   interrupted tool; the drill sends exactly this:
+   ```json
+   {"appName":"workspace","userId":"u1","sessionId":"<session>","invocationId":"<id of the cut turn>"}
    ```
-   The `sleep 20 && echo` runs again and the turn completes. Note what that means: ADK resume **replays**,
-   Substrate restore does not. A tool that sends an email or charges a card must be idempotent, or gated
-   behind a confirmation as in Part A, before you combine the two.
+   The `sleep 20 && echo` runs again and the turn completes with its output. Do this right after the cut: once
+   later turns are appended to the session, the model treats the old invocation as history and summarises it
+   instead of re-running the tool. Note what the replay means: ADK resume **replays**, Substrate restore does
+   not. A tool that sends an email or charges a card must be idempotent, or gated behind a confirmation as
+   in Part A, before you combine the two.
 
 ## What just happened
 

@@ -48,11 +48,19 @@ wait "$client" || true
 echo "client: HTTP/time $(cat "$stream.status" | tail -1) after $(( $(date +%s%3N) - t0 )) ms, events=$(grep -c '^data: ' "$stream" || true)"
 sed -n 's/^data: //p' "$stream" | jq -c '{author, calls: [.content.parts[]?.functionCall.name // empty], responses: [.content.parts[]?.functionResponse.name // empty], text: ([.content.parts[]?.text // empty] | join(" ") | .[0:80])}' 2>/dev/null | tail -4
 
-echo "== 4. next turn resumes the actor elsewhere; did the tool finish once?"
+echo "== 4. session history: the tool was abandoned when the stream died"
+history() {
+  curl -sS "$base/apps/$app/users/$user/sessions/$session" | jq -c '[.events[] | {author, calls: [.content.parts[]?.functionCall.name // empty], responses: [.content.parts[]?.functionResponse.response // empty], text: ([.content.parts[]?.text // empty] | join(" ") | .[0:80])} | select((.calls|length)>0 or (.responses|length)>0 or (.text|length)>0)]'
+}
 sleep 2
-"$here/turn.sh" "$actor" "What was the exact output of the sleep command I asked for? If it has not finished, say so." "$session" "$user" 2>&1 | tail -3
-sleep 20
-"$here/turn.sh" "$actor" "And now: what was the exact output of that sleep command?" "$session" "$user" 2>&1 | tail -3
-echo "== 5. session history: shell tool calls and responses"
-curl -sS "$base/apps/$app/users/$user/sessions/$session" | jq -c '[.events[] | {author, calls: [.content.parts[]?.functionCall.name // empty], responses: [.content.parts[]?.functionResponse.name // empty], text: ([.content.parts[]?.text // empty] | join(" ") | .[0:80])} | select((.calls|length)>0 or (.responses|length)>0 or (.text|length)>0)]'
+history
+inv="$(curl -sS "$base/apps/$app/users/$user/sessions/$session" | jq -r '[.events[] | select(.author=="user")][0].invocationId')"
+
+echo "== 5. ADK resume: the same invocation id, no new message (replays the log, re-runs the tool)"
+t0=$(date +%s%3N)
+resume="$(jq -cn --arg app "$app" --arg user "$user" --arg session "$session" --arg inv "$inv" \
+  '{appName:$app, userId:$user, sessionId:$session, invocationId:$inv, streaming:false}')"
+curl -sS -N -X POST -H 'Content-Type: application/json' -d "$resume" "$base/run_sse" | sed -n 's/^data: //p' \
+  | jq -c '{author, calls: [.content.parts[]?.functionCall.name // empty], responses: [.content.parts[]?.functionResponse.response // empty], text: ([.content.parts[]?.text // empty] | join(" ") | .[0:120])}'
+echo "resume turn: $(( $(date +%s%3N) - t0 )) ms (the 20 s sleep ran again: ADK replays, Substrate does not)"
 rm -f "$stream" "$stream.status"

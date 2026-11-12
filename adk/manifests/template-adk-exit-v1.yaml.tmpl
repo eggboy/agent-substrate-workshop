@@ -1,0 +1,64 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ActorTemplate adk-exit-v1: adk-v1 with the shim told to behave like every uvicorn server does
+# by default, exit on SIGTERM (SHIM_EXIT_ON_SIGTERM=1). Lab 3 evicts an actor of this template
+# to show what happens to an agent with no SIGTERM plan: CRASHED, and `kubectl ate revert`.
+metadata:
+  atespace: ${ATESPACE}
+  name: adk-exit-v1
+workerSelector:
+  matchLabels:
+    workload: adk-agent
+containers:
+- name: agent
+  image: ${ADK_IMAGE}
+  command: ["/app/.venv/bin/python", "-m", "shim.entrypoint"]
+  env:
+  - name: SHIM_EXIT_ON_SIGTERM
+    value: "1"
+  - name: ADK_EXTRA_ARGS
+    value: "--session_service_uri=memory:// --auto_create_session"
+  - name: AGENT_MODEL
+    value: ${GEMINI_MODEL}
+  - name: GOOGLE_API_KEY
+    value: placeholder-replaced-by-egress-gateway
+  - name: SSL_CERT_FILE
+    value: /run/ate/trust-bundle.pem
+  - name: REQUESTS_CA_BUNDLE
+    value: /run/ate/trust-bundle.pem
+  - name: CURL_CA_BUNDLE
+    value: /run/ate/trust-bundle.pem
+  wakeupProbe:
+    httpGet: {path: /health, port: 80}
+  volumeMounts:
+  - {name: workspace, mountPath: /workspace}
+  - {name: system-info, mountPath: /run/ate}
+resources:
+  limits:
+    cpuMillicores: 1000
+    memoryBytes: 1610612736
+snapshotConfig:
+  preferredFidelity: SNAPSHOT_FIDELITY_MEMORY
+volumes:
+- name: workspace
+  durableDir: {}
+- name: system-info
+  systemInfo:
+    dataSources:
+    - trustBundle:
+        names:
+        - egress-mitm.ate.dev
+        - system-roots.ate.dev
+        path: trust-bundle.pem

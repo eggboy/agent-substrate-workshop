@@ -43,6 +43,10 @@ build-gateway: ## ko build the gateway -> .workshop/gateway-image
 build: build-agent build-gateway ## Build the agent and gateway images
 adk-image: ## Cloud Build the ADK actor image (adk/app) -> .workshop/adk-image [ADK_IMAGE_TAG=dev]
 	@adk/scripts/build-image.sh
+adk-catch-up: ## Bring your environment to the start of an ADK lab [LAB=N RESET=1]
+	@LAB="$(LAB)" RESET="$(RESET)" adk/scripts/catch-up.sh
+adk-verify: ## Check the end state of an ADK lab [LAB=N]
+	@adk/scripts/verify/$$(printf '%02d' "$(LAB)").sh
 gateway: ## Build and deploy the gateway [IDLE_AFTER=3s (default: keep live value) MOCK_LLM=true|false]
 	@scripts/build.sh gateway && scripts/gateway.sh
 egress: ## Apply an EgressPolicy [POLICY=file, then ACTOR=name or ALL=1]
